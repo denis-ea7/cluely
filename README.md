@@ -2,6 +2,9 @@
 
 A desktop application to help you cheat on everything. 
 
+## Sponsored by Recall AI - API for desktop recording
+If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://www.recall.ai), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more
+
 ## 🚀 Quick Start Guide
 
 ### Prerequisites
