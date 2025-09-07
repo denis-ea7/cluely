@@ -1,6 +1,6 @@
 # Free Cluely
 
-A desktop application to help you cheat on everything. 
+An undetectable desktop application to help you cheat on everything and gives you the answers you didn't study for. 
 
 # Sponsored by Recall AI - API for desktop recording
 If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://www.recall.ai/product/desktop-recording-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
