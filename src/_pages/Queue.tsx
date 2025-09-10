@@ -9,6 +9,7 @@ import {
   ToastMessage
 } from "../components/ui/toast"
 import QueueCommands from "../components/Queue/QueueCommands"
+import ModelSelector from "../components/ui/ModelSelector"
 
 interface QueueProps {
   setView: React.Dispatch<React.SetStateAction<"queue" | "solutions" | "debug">>
@@ -31,6 +32,9 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
   const [chatLoading, setChatLoading] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const chatInputRef = useRef<HTMLInputElement>(null)
+  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [currentModel, setCurrentModel] = useState<{ provider: string; model: string }>({ provider: "gemini", model: "gemini-2.0-flash" })
 
   const barRef = useRef<HTMLDivElement>(null)
 
@@ -97,6 +101,19 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
       chatInputRef.current?.focus()
     }
   }
+
+  // Load current model configuration on mount
+  useEffect(() => {
+    const loadCurrentModel = async () => {
+      try {
+        const config = await window.electronAPI.getCurrentLlmConfig();
+        setCurrentModel({ provider: config.provider, model: config.model });
+      } catch (error) {
+        console.error('Error loading current model config:', error);
+      }
+    };
+    loadCurrentModel();
+  }, []);
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -182,6 +199,20 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     setIsChatOpen(!isChatOpen)
   }
 
+  const handleSettingsToggle = () => {
+    setIsSettingsOpen(!isSettingsOpen)
+  }
+
+  const handleModelChange = (provider: "ollama" | "gemini", model: string) => {
+    setCurrentModel({ provider, model })
+    // Update chat messages to reflect the model change
+    const modelName = provider === "ollama" ? model : "Gemini 2.0 Flash"
+    setChatMessages((msgs) => [...msgs, { 
+      role: "gemini", 
+      text: `🔄 Switched to ${provider === "ollama" ? "🏠" : "☁️"} ${modelName}. Ready for your questions!` 
+    }])
+  }
+
 
   return (
     <div
@@ -209,17 +240,27 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
               screenshots={screenshots}
               onTooltipVisibilityChange={handleTooltipVisibilityChange}
               onChatToggle={handleChatToggle}
+              onSettingsToggle={handleSettingsToggle}
             />
           </div>
+          {/* Conditional Settings Interface */}
+          {isSettingsOpen && (
+            <div className="mt-4 w-full mx-auto">
+              <ModelSelector onModelChange={handleModelChange} onChatOpen={() => setIsChatOpen(true)} />
+            </div>
+          )}
+          
           {/* Conditional Chat Interface */}
           {isChatOpen && (
             <div className="mt-4 w-full mx-auto liquid-glass chat-container p-4 flex flex-col">
             <div className="flex-1 overflow-y-auto mb-3 p-3 rounded-lg bg-white/10 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-white/20 shadow-lg">
               {chatMessages.length === 0 ? (
                 <div className="text-sm text-gray-600 text-center mt-8">
-                  💬 Chat with Gemini 2.5 Flash
+                  💬 Chat with {currentModel.provider === "ollama" ? "🏠" : "☁️"} {currentModel.model}
                   <br />
                   <span className="text-xs text-gray-500">Take a screenshot (Cmd+H) for automatic analysis</span>
+                  <br />
+                  <span className="text-xs text-gray-500">Click ⚙️ Models to switch AI providers</span>
                 </div>
               ) : (
                 chatMessages.map((msg, idx) => (
@@ -247,7 +288,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
                       <span className="animate-pulse text-gray-400">●</span>
                       <span className="animate-pulse animation-delay-200 text-gray-400">●</span>
                       <span className="animate-pulse animation-delay-400 text-gray-400">●</span>
-                      <span className="ml-2">Gemini is thinking...</span>
+                      <span className="ml-2">{currentModel.model} is replying...</span>
                     </span>
                   </div>
                 </div>

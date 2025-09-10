@@ -6,12 +6,14 @@ interface QueueCommandsProps {
   onTooltipVisibilityChange: (visible: boolean, height: number) => void
   screenshots: Array<{ path: string; preview: string }>
   onChatToggle: () => void
+  onSettingsToggle: () => void
 }
 
 const QueueCommands: React.FC<QueueCommandsProps> = ({
   onTooltipVisibilityChange,
   screenshots,
-  onChatToggle
+  onChatToggle,
+  onSettingsToggle
 }) => {
   const [isTooltipVisible, setIsTooltipVisible] = useState(false)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -132,6 +134,17 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
             type="button"
           >
             💬 Chat
+          </button>
+        </div>
+
+        {/* Settings Button */}
+        <div className="flex items-center gap-2">
+          <button
+            className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1"
+            onClick={onSettingsToggle}
+            type="button"
+          >
+            ⚙️ Models
           </button>
         </div>
 
