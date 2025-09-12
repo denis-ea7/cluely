@@ -1,16 +1,6 @@
 # Free Cluely
 
-**Your invisible AI companion for confident conversations** 🤖✨
-
 The first free open-source version of [Cluely](https://cluely.com) - The invisible AI assistant built by Roy "Chungin" Lee that provides real-time insights, answers, and support during meetings, interviews, presentations, and professional conversations.
-
-## 🎯 Perfect For
-- **Students** - Never get caught off-guard in presentations or oral exams
-- **Sales Professionals** - Get instant product info and objection handling
-- **Job Seekers** - Ace interviews with real-time coaching
-- **Consultants** - Access relevant data and insights on-the-fly  
-- **Executives** - Stay sharp in high-stakes meetings
-- **Anyone** who wants to appear more prepared and confident
 
 ## Sponsored by Recall AI - API for desktop recording
 If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://www.recall.ai/product/desktop-recording-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
@@ -128,13 +118,13 @@ The built app will be in the `release` folder.
 
 ## 🔧 Troubleshooting
 
-### Windows Issues Fixed ✅
+### Windows Issues Fixed 
 - **UI not loading**: Port mismatch resolved
 - **Electron crashes**: Improved error handling  
 - **Build failures**: Production config updated
 - **Window focus problems**: Platform-specific fixes applied
 
-### Ubuntu/Linux Issues Fixed ✅
+### Ubuntu/Linux Issues Fixed 
 - **Window interaction**: Fixed focusable settings
 - **Installation confusion**: Clear setup instructions
 - **Missing dependencies**: All requirements documented
@@ -166,42 +156,42 @@ If you see other errors:
 - **Ubuntu/Linux**: Tested on Ubuntu 20.04+ and most Linux distros  
 - **macOS**: Native support with proper window management
 
-## ✨ Key Features
+## Key Features
 
-### 🎯 **Invisible AI Assistant**
+### **Invisible AI Assistant**
 - Translucent, always-on-top window that's barely noticeable
 - Hide/show instantly with global hotkeys
 - Works seamlessly across all applications
 
-### 📸 **Smart Screenshot Analysis** 
+### **Smart Screenshot Analysis** 
 - Take screenshots of any content with `Cmd/Ctrl + H`
 - AI analyzes images, documents, presentations, or problems
 - Get instant explanations, answers, and solutions
 
-### 🎤 **Audio Intelligence**
+### **Audio Intelligence**
 - Process audio files and recordings
 - Real-time transcription and analysis
 - Perfect for meeting notes and content review
 
-### 💬 **Contextual Chat**
+### **Contextual Chat**
 - Chat with AI about anything you see on screen
 - Maintains conversation context
 - Ask follow-up questions for deeper insights
 
-### 🔒 **Privacy-First Design**
+### **Privacy-First Design**
 - **Local AI Option**: Use Ollama for 100% private processing
 - **Cloud Option**: Google Gemini for maximum performance
 - Screenshots auto-deleted after processing
 - No data tracking or storage
 
-### ⚡ **Cross-Platform Support**
+### **Cross-Platform Support**
 - **Windows 10/11** - Full support with native performance
 - **Ubuntu/Linux** - Optimized for all major distributions  
 - **macOS** - Native window management and shortcuts
 
-## 🎪 Use Cases
+## Use Cases
 
-### 📚 **Academic & Learning**
+### **Academic & Learning**
 ```
 ✓ Live presentation support during classes
 ✓ Quick research during online exams  
@@ -209,7 +199,7 @@ If you see other errors:
 ✓ Math and science problem solving
 ```
 
-### 💼 **Professional Meetings**
+### **Professional Meetings**
 ```
 ✓ Sales call preparation and objection handling
 ✓ Technical interview coaching
@@ -217,7 +207,7 @@ If you see other errors:
 ✓ Real-time fact-checking and data lookup
 ```
 
-### 👨‍💻 **Development & Tech**
+### **Development & Tech**
 ```
 ✓ Debug error messages instantly
 ✓ Code explanation and optimization
@@ -225,7 +215,7 @@ If you see other errors:
 ✓ Algorithm and architecture guidance
 ```
 
-## 🚀 Why Choose Free Cluely?
+## Why Choose Free Cluely?
 
 | Feature | Free Cluely | Commercial Alternatives |
 |---------|-------------|------------------------|
@@ -236,7 +226,7 @@ If you see other errors:
 | **Data Control** | You own your data | Third-party servers |
 | **Offline Mode** | Yes (with Ollama) | No |
 
-## 🔧 Technical Details
+## Technical Details
 
 ### **AI Models Supported**
 - **Gemini 2.0 Flash** - Latest Google AI with vision capabilities
