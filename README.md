@@ -1,6 +1,6 @@
 # Cluely
 
-[Cluely](https://cluely.com) - The invisible AI assistant that provides real-time insights, answers, and support during meetings, interviews, presentations, and professional conversations.
+[Cluely](https://cluely.com) - The invisible desktop assistant that provides real-time insights, answers, and support during meetings, interviews, presentations, and professional conversations.
 
 ## Sponsored by Recall AI - API for desktop recording
 If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://www.recall.ai/product/desktop-recording-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
