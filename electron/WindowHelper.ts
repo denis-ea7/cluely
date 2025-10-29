@@ -1,5 +1,7 @@
 
 import { BrowserWindow, screen } from "electron"
+import screenshot from "screenshot-desktop"
+import sharp from "sharp"
 import { AppState } from "main"
 import path from "node:path"
 
@@ -132,6 +134,8 @@ export class WindowHelper {
         this.mainWindow.focus()
         this.mainWindow.setAlwaysOnTop(true)
         console.log("Window is now visible and centered")
+        // Initial theme detection
+        this.debouncedDetectTheme()
       }
     })
 
@@ -154,6 +158,7 @@ export class WindowHelper {
         this.windowPosition = { x: bounds.x, y: bounds.y }
         this.currentX = bounds.x
         this.currentY = bounds.y
+        this.debouncedDetectTheme()
       }
     })
 
@@ -161,6 +166,7 @@ export class WindowHelper {
       if (this.mainWindow) {
         const bounds = this.mainWindow.getBounds()
         this.windowSize = { width: bounds.width, height: bounds.height }
+        this.debouncedDetectTheme()
       }
     })
 
@@ -170,6 +176,57 @@ export class WindowHelper {
       this.windowPosition = null
       this.windowSize = null
     })
+  }
+
+  // --- Theme detection based on background brightness ---
+  private themeDetectionTimer: NodeJS.Timeout | null = null
+  private themeDetecting: boolean = false
+  private debouncedDetectTheme(): void {
+    if (this.themeDetectionTimer) clearTimeout(this.themeDetectionTimer)
+    this.themeDetectionTimer = setTimeout(() => this.detectAndBroadcastTheme().catch(() => {}), 600)
+  }
+
+  private async detectAndBroadcastTheme(): Promise<void> {
+    if (!this.mainWindow || this.mainWindow.isDestroyed() || this.themeDetecting) return
+    this.themeDetecting = true
+    try {
+      const bounds = this.mainWindow.getBounds()
+      const img = (await screenshot({ format: 'png' })) as Buffer
+      const meta = await sharp(img).metadata()
+      const imgWidth = meta.width || this.screenWidth
+      const imgHeight = meta.height || this.screenHeight
+
+      const strip = 24
+      const rects = [
+        // top strip above window
+        { left: bounds.x, top: Math.max(bounds.y - strip, 0), width: bounds.width, height: Math.min(strip, bounds.y) },
+        // bottom strip below window
+        { left: bounds.x, top: Math.min(bounds.y + bounds.height, imgHeight - strip), width: bounds.width, height: Math.min(strip, imgHeight - (bounds.y + bounds.height)) },
+        // left strip
+        { left: Math.max(bounds.x - strip, 0), top: bounds.y, width: Math.min(strip, bounds.x), height: bounds.height },
+        // right strip
+        { left: Math.min(bounds.x + bounds.width, imgWidth - strip), top: bounds.y, width: Math.min(strip, imgWidth - (bounds.x + bounds.width)), height: bounds.height }
+      ].filter(r => r.width > 8 && r.height > 8)
+
+      const luminances: number[] = []
+      for (const r of rects) {
+        try {
+          const stats = await sharp(img).extract(r).resize(24, 24).stats()
+          const rr = stats.channels[0]?.mean || 0
+          const gg = stats.channels[1]?.mean || 0
+          const bb = stats.channels[2]?.mean || 0
+          luminances.push((0.2126 * rr + 0.7152 * gg + 0.0722 * bb) / 255)
+        } catch {}
+      }
+      if (luminances.length > 0) {
+        const avg = luminances.reduce((a, b) => a + b, 0) / luminances.length
+        const theme: 'light' | 'dark' = avg > 0.6 ? 'light' : 'dark'
+        this.mainWindow.webContents.send('theme-change', theme)
+      }
+    } catch {}
+    finally {
+      this.themeDetecting = false
+    }
   }
 
   public getMainWindow(): BrowserWindow | null {
