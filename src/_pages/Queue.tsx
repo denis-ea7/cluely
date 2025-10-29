@@ -92,13 +92,39 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     setChatLoading(true)
     setChatInput("")
     try {
-      const response = await window.electronAPI.invoke("gemini-chat", chatInput)
+      const history = chatMessages
+        .concat([{ role: 'user', text: chatInput }])
+        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+        .join('\n')
+      const prompt = history
+        ? `Контекст диалога:\n${history}\n\nОтветь на последний запрос пользователя, учитывая контекст.`
+        : chatInput
+      const response = await window.electronAPI.invoke("gemini-chat", prompt)
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: response }])
     } catch (err) {
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(err) }])
     } finally {
       setChatLoading(false)
       chatInputRef.current?.focus()
+    }
+  }
+
+  const handleAudioTranscript = async (transcript: string) => {
+    if (!transcript?.trim()) return
+    setChatMessages((msgs) => [...msgs, { role: 'user', text: transcript }])
+    setChatLoading(true)
+    try {
+      const history = chatMessages
+        .concat([{ role: 'user', text: transcript }])
+        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+        .join('\n')
+      const prompt = `Контекст диалога:\n${history}\n\nОтветь на последний запрос пользователя, учитывая контекст.`
+      const response = await window.electronAPI.invoke('gemini-chat', prompt)
+      setChatMessages((msgs) => [...msgs, { role: 'gemini', text: response }])
+    } catch (err) {
+      setChatMessages((msgs) => [...msgs, { role: 'gemini', text: 'Error: ' + String(err) }])
+    } finally {
+      setChatLoading(false)
     }
   }
 
@@ -242,7 +268,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
               onTooltipVisibilityChange={handleTooltipVisibilityChange}
               onChatToggle={handleChatToggle}
               onSettingsToggle={handleSettingsToggle}
-              onAudioResult={(text) => setChatMessages((msgs) => [...msgs, { role: "gemini", text }])}
+              onAudioTranscript={handleAudioTranscript}
             />
             {/* Settings */}
             {isSettingsOpen && (
@@ -253,7 +279,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
             {/* Chat */}
             {isChatOpen && (
               <div className="px-3 py-3">
-              <div className="flex-1 overflow-y-auto mb-3 p-3 rounded-lg bg-black/40 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-gray-700/50 shadow-lg">
+              <div className="flex-1 overflow-y-auto mb-2 p-3 rounded-lg bg-black/40 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-gray-700/50 shadow-lg">
               {chatMessages.length === 0 ? (
                 <div className="text-sm text-gray-600 text-center mt-8">
                   💬 Chat with {currentModel.provider === "ollama" ? "🏠" : "☁️"} {currentModel.model}
@@ -276,7 +302,17 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
                       }`}
                       style={{ wordBreak: "break-word", lineHeight: "1.4" }}
                     >
-                      {msg.text}
+                      <div className="flex justify-between gap-2">
+                        <div className="flex-1">{msg.text}</div>
+                        <button
+                          type="button"
+                          className="text-[10px] opacity-70 hover:opacity-100 bg-white/10 hover:bg-white/20 rounded px-2"
+                          onClick={() => navigator.clipboard.writeText(msg.text)}
+                          title="Скопировать"
+                        >
+                          ⧉
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -293,6 +329,28 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
                   </div>
                 </div>
               )}
+            </div>
+            {/* Chat toolbar */}
+            <div className="flex justify-between items-center mb-2 text-[11px]">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white/80 border border-white/20"
+                  onClick={() => {
+                    const all = chatMessages.map(m => `${m.role === 'user' ? 'Вопрос' : 'Ответ'}: ${m.text}`).join('\n\n')
+                    navigator.clipboard.writeText(all)
+                  }}
+                >
+                  Копировать всё
+                </button>
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded bg-red-500/70 hover:bg-red-500/80 text-white border border-red-500/60"
+                  onClick={() => setChatMessages([])}
+                >
+                  Сбросить контекст
+                </button>
+              </div>
             </div>
             <form
               className="flex gap-2 items-center glass-content"

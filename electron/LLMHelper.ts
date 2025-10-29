@@ -203,11 +203,11 @@ export class LLMHelper {
           mimeType: "audio/mp3"
         }
       };
-      const prompt = `${this.systemPrompt}\n\nОтвечай так же, как в чате: строго и кратко по существу, без подсказок/дальнейших действий. Верни только итоговый ответ без вступлений и пояснений.`;
-      const result = await this.model.generateContent([prompt, audioPart]);
-      const response = await result.response;
-      const text = response.text();
-      return { text, timestamp: Date.now() };
+      // Step 1: get transcript only
+      const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
+      const trResult = await this.model.generateContent([transcriptPrompt, audioPart]);
+      const trText = (await trResult.response).text();
+      return { text: trText, timestamp: Date.now() };
     } catch (error) {
       console.error("Error analyzing audio file:", error);
       throw error;
@@ -222,11 +222,11 @@ export class LLMHelper {
           mimeType
         }
       };
-      const prompt = `${this.systemPrompt}\n\nОтвечай так же, как в чате: строго и кратко по существу, без подсказок/дальнейших действий. Верни только итоговый ответ без вступлений и пояснений.`;
-      const result = await this.model.generateContent([prompt, audioPart]);
-      const response = await result.response;
-      const text = response.text();
-      return { text, timestamp: Date.now() };
+      // Step 1: get transcript only
+      const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
+      const trResult = await this.model.generateContent([transcriptPrompt, audioPart]);
+      const trText = (await trResult.response).text();
+      return { text: trText, timestamp: Date.now() };
     } catch (error) {
       console.error("Error analyzing audio from base64:", error);
       throw error;
