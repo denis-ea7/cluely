@@ -7,13 +7,15 @@ interface QueueCommandsProps {
   screenshots: Array<{ path: string; preview: string }>
   onChatToggle: () => void
   onSettingsToggle: () => void
+  onAudioResult?: (text: string) => void
 }
 
 const QueueCommands: React.FC<QueueCommandsProps> = ({
   onTooltipVisibilityChange,
   screenshots,
   onChatToggle,
-  onSettingsToggle
+  onSettingsToggle,
+  onAudioResult
 }) => {
   const [isTooltipVisible, setIsTooltipVisible] = useState(false)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -55,6 +57,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
             try {
               const result = await window.electronAPI.analyzeAudioFromBase64(base64Data, blob.type)
               setAudioResult(result.text)
+              onAudioResult?.(result.text)
             } catch (err) {
               setAudioResult('Audio analysis failed.')
             }
@@ -78,8 +81,8 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
   // Remove handleChatSend function
 
   return (
-    <div className="w-fit">
-      <div className="text-xs text-white/90 liquid-glass-bar py-1 px-4 flex items-center justify-center gap-4 draggable-area">
+    <div className="w-full">
+      <div className="text-xs text-white/90 py-1 px-2 flex items-center justify-start gap-4 draggable-area border-b border-white/10">
         {/* Show/Hide */}
         <div className="flex items-center gap-2">
           <span className="text-[11px] leading-none">Show/Hide</span>
@@ -244,12 +247,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
           <IoLogOutOutline className="w-4 h-4" />
         </button>
       </div>
-      {/* Audio Result Display */}
-      {audioResult && (
-        <div className="mt-2 p-2 bg-white/10 rounded text-white text-xs max-w-md">
-          <span className="font-semibold">Audio Result:</span> {audioResult}
-        </div>
-      )}
+      {/* Audio result now piped into chat via onAudioResult; no separate block here */}
       {/* Chat Dialog Overlay */}
       {/* Remove the Dialog component */}
     </div>

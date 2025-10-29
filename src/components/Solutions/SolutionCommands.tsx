@@ -33,8 +33,8 @@ const SolutionCommands: React.FC<SolutionCommandsProps> = ({
 
   return (
     <div>
-      <div className="pt-2 w-fit">
-        <div className="text-xs text-white/90 backdrop-blur-md bg-black/60 rounded-lg py-2 px-4 flex items-center justify-center gap-4">
+      <div className="w-full">
+        <div className="text-xs text-white/90 py-2 px-2 flex items-center justify-start gap-4 border-b border-white/10">
           {/* Show/Hide */}
           <div className="flex items-center gap-2 whitespace-nowrap">
             <span className="text-[11px] leading-none">Show/Hide</span>
