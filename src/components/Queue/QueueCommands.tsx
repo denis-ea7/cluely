@@ -7,7 +7,7 @@ interface QueueCommandsProps {
   screenshots: Array<{ path: string; preview: string }>
   onChatToggle: () => void
   onSettingsToggle: () => void
-  onAudioResult?: (text: string) => void
+  onAudioTranscript?: (text: string) => void
 }
 
 const QueueCommands: React.FC<QueueCommandsProps> = ({
@@ -15,7 +15,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
   screenshots,
   onChatToggle,
   onSettingsToggle,
-  onAudioResult
+  onAudioTranscript
 }) => {
   const [isTooltipVisible, setIsTooltipVisible] = useState(false)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -57,7 +57,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
             try {
               const result = await window.electronAPI.analyzeAudioFromBase64(base64Data, blob.type)
               setAudioResult(result.text)
-              onAudioResult?.(result.text)
+              onAudioTranscript?.(result.text)
             } catch (err) {
               setAudioResult('Audio analysis failed.')
             }
