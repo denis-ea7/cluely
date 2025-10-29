@@ -43,6 +43,7 @@ interface ElectronAPI {
   testLlmConnection: () => Promise<{ success: boolean; error?: string }>
   
   invoke: (channel: string, ...args: any[]) => Promise<any>
+  onThemeChange: (callback: (theme: "light" | "dark") => void) => () => void
 }
 
 export const PROCESSING_EVENTS = {
@@ -187,5 +188,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchToGemini: (apiKey?: string) => ipcRenderer.invoke("switch-to-gemini", apiKey),
   testLlmConnection: () => ipcRenderer.invoke("test-llm-connection"),
   
-  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args)
+  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+  onThemeChange: (callback: (theme: "light" | "dark") => void) => {
+    const subscription = (_: any, theme: "light" | "dark") => callback(theme)
+    ipcRenderer.on("theme-change", subscription)
+    return () => ipcRenderer.removeListener("theme-change", subscription)
+  }
 } as ElectronAPI)

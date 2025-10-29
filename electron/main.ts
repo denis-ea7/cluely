@@ -1,4 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron"
+import { ProxyAgent, setGlobalDispatcher } from "undici"
+import dotenv from "dotenv"
 import { initializeIpcHandlers } from "./ipcHandlers"
 import { WindowHelper } from "./WindowHelper"
 import { ScreenshotHelper } from "./ScreenshotHelper"
@@ -269,6 +271,17 @@ export class AppState {
 
 // Application initialization
 async function initializeApp() {
+  // Load .env and setup proxy if provided
+  try {
+    dotenv.config()
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.PROXY_URL
+    if (proxyUrl) {
+      setGlobalDispatcher(new ProxyAgent(proxyUrl))
+      console.log("Global proxy enabled for HTTP(S) via:", proxyUrl.replace(/:\\S+@/, ":***@"))
+    }
+  } catch (e) {
+    console.warn("Proxy setup skipped:", e)
+  }
   const appState = AppState.getInstance()
 
   // Initialize IPC handlers before window creation

@@ -108,6 +108,23 @@ button, input, select, textarea, .interactive {
     inset 0 -1px 0 rgba(0, 0, 0, 0.2);
 }
 
+/* Theme overrides: choose glass color based on background brightness */
+.theme-light .liquid-glass-dark,
+.theme-light .chat-container,
+.theme-light .liquid-glass-bar {
+  background: rgba(0, 0, 0, 0.55);
+  color: #f3f4f6;
+  border-color: rgba(255,255,255,0.15);
+}
+
+.theme-dark .liquid-glass-dark,
+.theme-dark .chat-container,
+.theme-dark .liquid-glass-bar {
+  background: rgba(255, 255, 255, 0.28);
+  color: #111827;
+  border-color: rgba(255,255,255,0.35);
+}
+
 /* Ensure content is not blurred */
 .glass-content {
   position: relative;
@@ -128,6 +145,15 @@ button, input, select, textarea, .interactive {
     0 12px 40px rgba(0, 0, 0, 0.15),
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Improve readability on transparent backgrounds */
+.liquid-glass,
+.liquid-glass-dark,
+.liquid-glass-bar,
+.glass-content {
+  color: #e5e7eb; /* tailwind gray-200 */
+  text-shadow: 0 1px 1px rgba(0,0,0,0.6);
 }
 
 /* Thin bar variant of liquid glass - for command bar */

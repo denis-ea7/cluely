@@ -8,7 +8,7 @@ interface OllamaResponse {
 
 export class LLMHelper {
   private model: GenerativeModel | null = null
-  private readonly systemPrompt = `You are Wingman AI, a helpful, proactive assistant for any kind of problem or situation (not just coding). For any user input, analyze the situation, provide a clear problem statement, relevant context, and suggest several possible responses or actions the user could take next. Always explain your reasoning. Present your suggestions as a list of options or next steps.`
+  private readonly systemPrompt = `Ты Wingman AI — полезный, проактивный помощник для любых задач (не только кодинг). Отвечай кратко и по делу. Если запрос подразумевает перечисление (напр. "какие типы данных в JavaScript"), верни только список пунктов, без вводных и пояснений. По умолчанию отвечай на русском языке. Если требуется вернуть JSON, строго следуй формату из запроса: ключи и структура — на английском, как в инструкции; значения-тексты — на русском. Если пользователь пишет на другом языке, всё равно отвечай на русском, пока явно не попросят иначе.`
   private useOllama: boolean = false
   private ollamaModel: string = "llama3.2"
   private ollamaUrl: string = "http://localhost:11434"
@@ -203,7 +203,7 @@ export class LLMHelper {
           mimeType: "audio/mp3"
         }
       };
-      const prompt = `${this.systemPrompt}\n\nDescribe this audio clip in a short, concise answer. In addition to your main answer, suggest several possible actions or responses the user could take next based on the audio. Do not return a structured JSON object, just answer naturally as you would to a user.`;
+      const prompt = `${this.systemPrompt}\n\nОтвечай так же, как в чате: строго и кратко по существу, без подсказок/дальнейших действий. Верни только итоговый ответ без вступлений и пояснений.`;
       const result = await this.model.generateContent([prompt, audioPart]);
       const response = await result.response;
       const text = response.text();
@@ -222,7 +222,7 @@ export class LLMHelper {
           mimeType
         }
       };
-      const prompt = `${this.systemPrompt}\n\nDescribe this audio clip in a short, concise answer. In addition to your main answer, suggest several possible actions or responses the user could take next based on the audio. Do not return a structured JSON object, just answer naturally as you would to a user and be concise.`;
+      const prompt = `${this.systemPrompt}\n\nОтвечай так же, как в чате: строго и кратко по существу, без подсказок/дальнейших действий. Верни только итоговый ответ без вступлений и пояснений.`;
       const result = await this.model.generateContent([prompt, audioPart]);
       const response = await result.response;
       const text = response.text();
@@ -255,12 +255,39 @@ export class LLMHelper {
 
   public async chatWithGemini(message: string): Promise<string> {
     try {
+      const composedPrompt = `${this.systemPrompt}\n\n${message}`;
       if (this.useOllama) {
-        return this.callOllama(message);
+        return this.callOllama(composedPrompt);
       } else if (this.model) {
-        const result = await this.model.generateContent(message);
-        const response = await result.response;
-        return response.text();
+        try {
+          const result = await this.model.generateContent(composedPrompt);
+          const response = await result.response;
+          return response.text();
+        } catch (err: any) {
+          const msg = String(err?.message || err);
+          // Region restriction fallback
+          if (msg.includes("User location is not supported")) {
+            console.warn("[LLMHelper] Gemini blocked by region; attempting Ollama fallback...");
+            try {
+              const available = await this.checkOllamaAvailable();
+              if (!available) {
+                throw new Error(
+                  "Gemini недоступен в вашем регионе. Запустите Ollama (ollama serve) и установите модель: 'ollama pull llama3.2', затем попробуйте снова."
+                );
+              }
+              // Ensure model exists
+              const models = await this.getOllamaModels();
+              if (models.length > 0 && !models.includes(this.ollamaModel)) {
+                this.ollamaModel = models[0];
+              }
+              this.useOllama = true;
+              return await this.callOllama(composedPrompt);
+            } catch (fallbackError: any) {
+              throw fallbackError;
+            }
+          }
+          throw err;
+        }
       } else {
         throw new Error("No LLM provider configured");
       }

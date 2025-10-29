@@ -76,6 +76,17 @@ const App: React.FC = () => {
 
   // Effect for height monitoring
   useEffect(() => {
+    // Dynamic theme from main process
+    const cleanupTheme = window.electronAPI.onThemeChange?.((theme) => {
+      if (theme === 'dark') {
+        document.body.classList.add('theme-dark')
+        document.body.classList.remove('theme-light')
+      } else {
+        document.body.classList.add('theme-light')
+        document.body.classList.remove('theme-dark')
+      }
+    })
+
     const cleanup = window.electronAPI.onResetView(() => {
       console.log("Received 'reset-view' message from main process.")
       queryClient.invalidateQueries(["screenshots"])
@@ -87,6 +98,7 @@ const App: React.FC = () => {
 
     return () => {
       cleanup()
+      cleanupTheme && cleanupTheme()
     }
   }, [])
 

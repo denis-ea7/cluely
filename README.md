@@ -265,3 +265,4 @@ ISC License - Free for personal and commercial use.
 
 ### 🏷️ Tags
 `ai-assistant` `meeting-notes` `interview-helper` `presentation-support` `ollama` `gemini-ai` `electron-app` `cross-platform` `privacy-focused` `open-source` `local-ai` `screenshot-analysis` `academic-helper` `sales-assistant` `coding-companion`
+# cluely

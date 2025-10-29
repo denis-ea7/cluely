@@ -122,16 +122,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
 
   if (isLoading) {
     return (
-      <div className="p-4 bg-white/20 backdrop-blur-md rounded-lg border border-white/30">
-        <div className="animate-pulse text-sm text-gray-600">Loading model configuration...</div>
+      <div className="p-4 bg-black/40 backdrop-blur-md rounded-lg border border-gray-700/50">
+        <div className="animate-pulse text-sm text-gray-300">Loading model configuration...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 bg-white/20 backdrop-blur-md rounded-lg border border-white/30 space-y-4">
+    <div className="p-4 bg-black/40 backdrop-blur-md rounded-lg border border-gray-700/50 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-800">AI Model Selection</h3>
+        <h3 className="text-sm font-semibold text-gray-200">AI Model Selection</h3>
         <div className={`text-xs ${getStatusColor()}`}>
           {getStatusText()}
         </div>
@@ -139,21 +139,21 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
 
       {/* Current Status */}
       {currentConfig && (
-        <div className="text-xs text-gray-600 bg-white/40 p-2 rounded">
+        <div className="text-xs text-gray-300 bg-black/40 p-2 rounded border border-gray-700/50">
           Current: {currentConfig.provider === 'ollama' ? '🏠' : '☁️'} {currentConfig.model}
         </div>
       )}
 
       {/* Provider Selection */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-gray-700">Provider</label>
+        <label className="text-xs font-medium text-gray-300">Provider</label>
         <div className="flex gap-2">
           <button
             onClick={() => setSelectedProvider('gemini')}
             className={`flex-1 px-3 py-2 rounded text-xs transition-all ${
               selectedProvider === 'gemini'
                 ? 'bg-blue-500 text-white shadow-md'
-                : 'bg-white/40 text-gray-700 hover:bg-white/60'
+                : 'bg-black/40 text-gray-200 hover:bg-black/60'
             }`}
           >
             ☁️ Gemini (Cloud)
@@ -163,7 +163,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
             className={`flex-1 px-3 py-2 rounded text-xs transition-all ${
               selectedProvider === 'ollama'
                 ? 'bg-green-500 text-white shadow-md'
-                : 'bg-white/40 text-gray-700 hover:bg-white/60'
+                : 'bg-black/40 text-gray-200 hover:bg-black/60'
             }`}
           >
             🏠 Ollama (Local)
@@ -174,33 +174,33 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
       {/* Provider-specific settings */}
       {selectedProvider === 'gemini' ? (
         <div className="space-y-2">
-          <label className="text-xs font-medium text-gray-700">Gemini API Key (optional if already set)</label>
+          <label className="text-xs font-medium text-gray-300">Gemini API Key (optional if already set)</label>
           <input
             type="password"
             placeholder="Enter API key to update..."
             value={geminiApiKey}
             onChange={(e) => setGeminiApiKey(e.target.value)}
-            className="w-full px-3 py-2 text-xs bg-white/40 border border-white/60 rounded focus:outline-none focus:ring-2 focus:ring-blue-400/60"
+            className="w-full px-3 py-2 text-xs bg-black/40 text-gray-200 border border-gray-600/60 rounded focus:outline-none focus:ring-2 focus:ring-blue-400/40 placeholder-gray-400"
           />
         </div>
       ) : (
         <div className="space-y-2">
           <div>
-            <label className="text-xs font-medium text-gray-700">Ollama URL</label>
+            <label className="text-xs font-medium text-gray-300">Ollama URL</label>
             <input
               type="url"
               value={ollamaUrl}
               onChange={(e) => setOllamaUrl(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-white/40 border border-white/60 rounded focus:outline-none focus:ring-2 focus:ring-green-400/60"
+              className="w-full px-3 py-2 text-xs bg-black/40 text-gray-200 border border-gray-600/60 rounded focus:outline-none focus:ring-2 focus:ring-green-400/40 placeholder-gray-400"
             />
           </div>
           
           <div>
             <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-700">Model</label>
+              <label className="text-xs font-medium text-gray-300">Model</label>
               <button
                 onClick={loadOllamaModels}
-                className="px-2 py-1 text-xs bg-white/60 hover:bg-white/80 rounded transition-all"
+                className="px-2 py-1 text-xs bg-black/60 hover:bg-black/80 text-gray-200 rounded transition-all"
                 title="Refresh models"
               >
                 🔄
@@ -211,7 +211,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
               <select
                 value={selectedOllamaModel}
                 onChange={(e) => setSelectedOllamaModel(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white/40 border border-white/60 rounded focus:outline-none focus:ring-2 focus:ring-green-400/60"
+                className="w-full px-3 py-2 text-xs bg-black/40 text-gray-200 border border-gray-600/60 rounded focus:outline-none focus:ring-2 focus:ring-green-400/40"
               >
                 {availableOllamaModels.map((model) => (
                   <option key={model} value={model}>
@@ -220,7 +220,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
                 ))}
               </select>
             ) : (
-              <div className="text-xs text-gray-600 bg-yellow-100/60 p-2 rounded">
+              <div className="text-xs text-gray-200 bg-yellow-900/40 p-2 rounded border border-yellow-700/40">
                 No Ollama models found. Make sure Ollama is running and models are installed.
               </div>
             )}
@@ -248,7 +248,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
       </div>
 
       {/* Help text */}
-      <div className="text-xs text-gray-600 space-y-1">
+      <div className="text-xs text-gray-300 space-y-1">
         <div>💡 <strong>Gemini:</strong> Fast, cloud-based, requires API key</div>
         <div>💡 <strong>Ollama:</strong> Private, local, requires Ollama installation</div>
       </div>
