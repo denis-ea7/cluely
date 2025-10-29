@@ -235,25 +235,25 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
             <ToastTitle>{toastMessage.title}</ToastTitle>
             <ToastDescription>{toastMessage.description}</ToastDescription>
           </Toast>
-          <div className="w-fit">
+          {/* Monolithic block: header + settings + chat */}
+          <div className="w-full mx-auto liquid-glass-dark rounded-xl border border-gray-700/50 overflow-hidden">
             <QueueCommands
               screenshots={screenshots}
               onTooltipVisibilityChange={handleTooltipVisibilityChange}
               onChatToggle={handleChatToggle}
               onSettingsToggle={handleSettingsToggle}
+              onAudioResult={(text) => setChatMessages((msgs) => [...msgs, { role: "gemini", text }])}
             />
-          </div>
-          {/* Conditional Settings Interface */}
-          {isSettingsOpen && (
-            <div className="mt-4 w-full mx-auto">
-              <ModelSelector onModelChange={handleModelChange} onChatOpen={() => setIsChatOpen(true)} />
-            </div>
-          )}
-          
-          {/* Conditional Chat Interface */}
-          {isChatOpen && (
-            <div className="mt-4 w-full mx-auto liquid-glass-dark p-4 flex flex-col">
-            <div className="flex-1 overflow-y-auto mb-3 p-3 rounded-lg bg-black/40 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-gray-700/50 shadow-lg">
+            {/* Settings */}
+            {isSettingsOpen && (
+              <div className="px-3 py-2 border-b border-white/10">
+                <ModelSelector onModelChange={handleModelChange} onChatOpen={() => setIsChatOpen(true)} />
+              </div>
+            )}
+            {/* Chat */}
+            {isChatOpen && (
+              <div className="px-3 py-3">
+              <div className="flex-1 overflow-y-auto mb-3 p-3 rounded-lg bg-black/40 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-gray-700/50 shadow-lg">
               {chatMessages.length === 0 ? (
                 <div className="text-sm text-gray-600 text-center mt-8">
                   💬 Chat with {currentModel.provider === "ollama" ? "🏠" : "☁️"} {currentModel.model}
@@ -323,6 +323,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
             </form>
           </div>
           )}
+          </div>
         </div>
       </div>
     </div>

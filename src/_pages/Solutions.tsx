@@ -464,31 +464,25 @@ const Solutions: React.FC<SolutionsProps> = ({ setView }) => {
             <ToastDescription>{toastMessage.description}</ToastDescription>
           </Toast>
 
-          {/* Conditionally render the screenshot queue if solutionData is available */}
-          {solutionData && (
-            <div className="bg-transparent w-fit">
-              <div className="pb-3">
-                <div className="space-y-3 w-fit">
+          {/* Monolithic container: header (commands) + content */}
+          <div className="w-full liquid-glass-dark rounded-xl border border-gray-700/50 overflow-hidden">
+            {/* Header: commands */}
+            <SolutionCommands
+              extraScreenshots={extraScreenshots}
+              onTooltipVisibilityChange={handleTooltipVisibilityChange}
+            />
+            {/* Content */}
+            <div className="px-4 py-3 space-y-4 max-w-full text-sm text-gray-100">
+              {/* Conditionally render the screenshot queue if solutionData is available */}
+              {solutionData && (
+                <div className="pb-2">
                   <ScreenshotQueue
                     isLoading={debugProcessing}
                     screenshots={extraScreenshots}
                     onDeleteScreenshot={handleDeleteExtraScreenshot}
                   />
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Navbar of commands with the SolutionsHelper */}
-          <SolutionCommands
-            extraScreenshots={extraScreenshots}
-            onTooltipVisibilityChange={handleTooltipVisibilityChange}
-          />
-
-          {/* Main Content - Modified width constraints */}
-          <div className="w-full text-sm text-gray-100 bg-black/60 rounded-md">
-            <div className="rounded-lg overflow-hidden">
-              <div className="px-4 py-3 space-y-4 max-w-full">
+              )}
                 {/* Show Screenshot or Audio Result as main output if validation_type is manual */}
                 {problemStatementData?.validation_type === "manual" ? (
                   <ContentSection
@@ -554,7 +548,6 @@ const Solutions: React.FC<SolutionsProps> = ({ setView }) => {
                     )}
                   </>
                 )}
-              </div>
             </div>
           </div>
         </div>
