@@ -22,6 +22,11 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
   const [isRecording, setIsRecording] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
   const [audioResult, setAudioResult] = useState<string | null>(null)
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([])
+  const [selectedInputId, setSelectedInputId] = useState<string>('')
+  const [inputLevel, setInputLevel] = useState<number>(0)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const rafRef = useRef<number | null>(null)
   const chunks = useRef<Blob[]>([])
   // Remove all chat-related state, handlers, and the Dialog overlay from this file.
 
@@ -41,11 +46,74 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
     setIsTooltipVisible(false)
   }
 
+  // Enumerate audio input devices
+  useEffect(() => {
+    let mounted = true
+    const loadDevices = async () => {
+      try {
+        // Request minimal permission once to reveal device labels (optional)
+        await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => undefined)
+        const list = await navigator.mediaDevices.enumerateDevices()
+        const inputs = list.filter(d => d.kind === 'audioinput')
+        if (mounted) setAudioDevices(inputs)
+        // Auto-select default device if none selected
+        if (mounted && !selectedInputId && inputs.length > 0) {
+          const preferred = inputs.find(d => /blackhole/i.test(d.label)) || inputs[0]
+          setSelectedInputId(preferred.deviceId)
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    loadDevices()
+    const onChange = () => loadDevices()
+    navigator.mediaDevices.addEventListener?.('devicechange', onChange)
+    return () => {
+      mounted = false
+      navigator.mediaDevices.removeEventListener?.('devicechange', onChange)
+    }
+  }, [])
+
   const handleRecordClick = async () => {
     if (!isRecording) {
       // Start recording
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const constraints: MediaStreamConstraints = {
+          audio: selectedInputId
+            ? {
+                deviceId: { exact: selectedInputId } as any,
+                echoCancellation: false as any,
+                noiseSuppression: false as any,
+                autoGainControl: false as any,
+                channelCount: 2 as any
+              }
+            : true
+        }
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        mediaStreamRef.current = stream
+
+        // Level meter
+        try {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+          const source = ctx.createMediaStreamSource(stream)
+          const analyser = ctx.createAnalyser()
+          analyser.fftSize = 512
+          source.connect(analyser)
+          const data = new Uint8Array(analyser.frequencyBinCount)
+          const tick = () => {
+            analyser.getByteTimeDomainData(data)
+            // Compute RMS
+            let sum = 0
+            for (let i = 0; i < data.length; i++) {
+              const v = (data[i] - 128) / 128
+              sum += v * v
+            }
+            const rms = Math.sqrt(sum / data.length) // 0..1
+            setInputLevel(rms)
+            rafRef.current = requestAnimationFrame(tick)
+          }
+          rafRef.current = requestAnimationFrame(tick)
+        } catch {}
         const recorder = new MediaRecorder(stream)
         recorder.ondataavailable = (e) => chunks.current.push(e.data)
         recorder.onstop = async () => {
@@ -75,6 +143,12 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
       mediaRecorder?.stop()
       setIsRecording(false)
       setMediaRecorder(null)
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(t => t.stop())
+        mediaStreamRef.current = null
+      }
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      setInputLevel(0)
     }
   }
 
@@ -127,6 +201,44 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
               <span>🎤 Record Voice</span>
             )}
           </button>
+          <div className="flex items-center gap-1">
+            <label className="opacity-70">Источник:</label>
+            <select
+              className="text-[11px] bg-white/10 hover:bg-white/20 border border-white/20 rounded px-2 py-1 text-white/80"
+              value={selectedInputId}
+              onChange={(e) => setSelectedInputId(e.target.value)}
+            >
+              {audioDevices.length === 0 && (
+                <option value="">По умолчанию</option>
+              )}
+              {audioDevices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || 'Микрофон'}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              title="Обновить список устройств"
+              className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70"
+              onClick={async () => {
+                try {
+                  const list = await navigator.mediaDevices.enumerateDevices()
+                  setAudioDevices(list.filter(d => d.kind === 'audioinput'))
+                } catch {}
+              }}
+            >
+              ↻
+            </button>
+            {/* Meter */}
+            <div className="ml-2 w-20 h-2 bg-white/10 rounded overflow-hidden">
+              <div
+                className="h-full bg-green-400/80 transition-[width]"
+                style={{ width: `${Math.min(100, Math.round(inputLevel * 140))}%` }}
+                title="Уровень сигнала"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Chat Button */}

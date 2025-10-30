@@ -274,6 +274,10 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
             {isSettingsOpen && (
               <div className="px-3 py-2 border-b border-white/10">
                 <ModelSelector onModelChange={handleModelChange} onChatOpen={() => setIsChatOpen(true)} />
+                <div className="text-[11px] text-gray-300 mt-2 opacity-80">
+                  Для записи системного звука установите loopback-устройство и выберите его выше:
+                  macOS — BlackHole, Windows — VB-CABLE. Затем начните запись.
+                </div>
               </div>
             )}
             {/* Chat */}
