@@ -105,7 +105,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   ipcMain.handle("gemini-chat", async (event, message: string) => {
     try {
-      const result = await appState.processingHelper.getLLMHelper().chatWithGemini(message);
+      const result = await appState.processingHelper.getLLMHelper().chat(message);
       return result;
     } catch (error: any) {
       console.error("Error in gemini-chat handler:", error);
@@ -186,6 +186,17 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   });
 
+  ipcMain.handle("switch-to-openai", async (_, apiKey?: string, model?: string) => {
+    try {
+      const llmHelper = appState.processingHelper.getLLMHelper();
+      await llmHelper.switchToOpenAI(apiKey, model);
+      return { success: true };
+    } catch (error: any) {
+      console.error("Error switching to OpenAI:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle("test-llm-connection", async () => {
     try {
       const llmHelper = appState.processingHelper.getLLMHelper();
@@ -196,4 +207,19 @@ export function initializeIpcHandlers(appState: AppState): void {
       return { success: false, error: error.message };
     }
   });
+
+  // OpenAI config for Realtime/Whisper (exposes first key for local app use)
+  ipcMain.handle("get-openai-config", async () => {
+    const keys: string[] = []
+    const combined = (process.env.OPENAI_API_KEYS || "").split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+    keys.push(...combined)
+    if (process.env.OPENAI_API_KEY) keys.push(process.env.OPENAI_API_KEY)
+    for (let i = 1; i <= 10; i++) {
+      const v = (process.env as any)[`OPENAI_API_KEY_${i}`]
+      if (v) keys.push(v)
+    }
+    const unique = Array.from(new Set(keys))
+    const model = process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime-preview-2024-12-17"
+    return { apiKey: unique[0] || "", model }
+  })
 }

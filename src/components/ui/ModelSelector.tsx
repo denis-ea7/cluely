@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
 interface ModelConfig {
-  provider: "ollama" | "gemini";
+  provider: "ollama" | "gemini" | "openai";
   model: string;
   isOllama: boolean;
 }
@@ -9,18 +9,22 @@ interface ModelConfig {
 interface ModelSelectorProps {
   onModelChange?: (provider: "ollama" | "gemini", model: string) => void;
   onChatOpen?: () => void;
+  transcribeProvider?: 'gemini' | 'openai-whisper' | 'openai-realtime'
+  onTranscribeProviderChange?: (p: 'gemini' | 'openai-whisper' | 'openai-realtime') => void
 }
 
-const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen }) => {
+const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen, transcribeProvider = 'gemini', onTranscribeProviderChange }) => {
   const [currentConfig, setCurrentConfig] = useState<ModelConfig | null>(null);
   const [availableOllamaModels, setAvailableOllamaModels] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'testing' | 'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState<"ollama" | "gemini">("gemini");
+  const [selectedProvider, setSelectedProvider] = useState<"ollama" | "gemini" | "openai">("gemini");
   const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>("");
   const [ollamaUrl, setOllamaUrl] = useState<string>("http://localhost:11434");
+  const [openaiApiKey, setOpenaiApiKey] = useState<string>("");
+  const [openaiModel, setOpenaiModel] = useState<string>("gpt-4o-mini");
 
   useEffect(() => {
     loadCurrentConfig();
@@ -80,14 +84,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
       
       if (selectedProvider === 'ollama') {
         result = await window.electronAPI.switchToOllama(selectedOllamaModel, ollamaUrl);
-      } else {
+      } else if (selectedProvider === 'gemini') {
         result = await window.electronAPI.switchToGemini(geminiApiKey || undefined);
+      } else {
+        result = await window.electronAPI.switchToOpenAI(openaiApiKey || undefined, openaiModel || undefined);
       }
 
       if (result.success) {
         await loadCurrentConfig();
         setConnectionStatus('success');
-        onModelChange?.(selectedProvider, selectedProvider === 'ollama' ? selectedOllamaModel : 'gemini-2.0-flash');
+        onModelChange?.(selectedProvider === 'openai' ? 'gemini' : selectedProvider, selectedProvider === 'ollama' ? selectedOllamaModel : (selectedProvider === 'openai' ? openaiModel : 'gemini-2.0-flash'));
         // Auto-open chat window after successful model change
         setTimeout(() => {
           onChatOpen?.();
@@ -159,6 +165,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
             ☁️ Gemini (Cloud)
           </button>
           <button
+            onClick={() => setSelectedProvider('openai')}
+            className={`flex-1 px-3 py-2 rounded text-xs transition-all ${
+              selectedProvider === 'openai'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'bg-black/40 text-gray-200 hover:bg-black/60'
+            }`}
+          >
+            ☁️ OpenAI (Cloud)
+          </button>
+          <button
             onClick={() => setSelectedProvider('ollama')}
             className={`flex-1 px-3 py-2 rounded text-xs transition-all ${
               selectedProvider === 'ollama'
@@ -181,6 +197,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
             value={geminiApiKey}
             onChange={(e) => setGeminiApiKey(e.target.value)}
             className="w-full px-3 py-2 text-xs bg-black/40 text-gray-200 border border-gray-600/60 rounded focus:outline-none focus:ring-2 focus:ring-blue-400/40 placeholder-gray-400"
+          />
+        </div>
+      ) : selectedProvider === 'openai' ? (
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-gray-300">OpenAI API Key (optional if already set)</label>
+          <input
+            type="password"
+            placeholder="Enter OpenAI API key..."
+            value={openaiApiKey}
+            onChange={(e) => setOpenaiApiKey(e.target.value)}
+            className="w-full px-3 py-2 text-xs bg-black/40 text-gray-200 border border-gray-600/60 rounded focus:outline-none focus:ring-2 focus:ring-purple-400/40 placeholder-gray-400"
+          />
+          <label className="text-xs font-medium text-gray-300">Model</label>
+          <input
+            type="text"
+            value={openaiModel}
+            onChange={(e) => setOpenaiModel(e.target.value)}
+            className="w-full px-3 py-2 text-xs bg-black/40 text-gray-200 border border-gray-600/60 rounded focus:outline-none focus:ring-2 focus:ring-purple-400/40 placeholder-gray-400"
           />
         </div>
       ) : (
@@ -227,6 +261,25 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
           </div>
         </div>
       )}
+
+      {/* Transcription Provider */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-gray-300">Transcription</label>
+        <div className="flex flex-col gap-1 text-gray-200">
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="transcribe" checked={transcribeProvider === 'gemini'} onChange={() => onTranscribeProviderChange?.('gemini')} />
+            <span>Gemini (chunked)</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="transcribe" checked={transcribeProvider === 'openai-whisper'} onChange={() => onTranscribeProviderChange?.('openai-whisper')} />
+            <span>OpenAI Whisper (REST)</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="transcribe" checked={transcribeProvider === 'openai-realtime'} onChange={() => onTranscribeProviderChange?.('openai-realtime')} />
+            <span>GPT Realtime (WebRTC)</span>
+          </label>
+        </div>
+      </div>
 
       {/* Action buttons */}
       <div className="flex gap-2 pt-2">

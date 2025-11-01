@@ -40,7 +40,9 @@ interface ElectronAPI {
   getAvailableOllamaModels: () => Promise<string[]>
   switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
   switchToGemini: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
+  switchToOpenAI: (apiKey?: string, model?: string) => Promise<{ success: boolean; error?: string }>
   testLlmConnection: () => Promise<{ success: boolean; error?: string }>
+  getOpenAIConfig: () => Promise<{ apiKey: string; model: string }>
   
   invoke: (channel: string, ...args: any[]) => Promise<any>
   onThemeChange: (callback: (theme: "light" | "dark") => void) => () => void
@@ -186,7 +188,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAvailableOllamaModels: () => ipcRenderer.invoke("get-available-ollama-models"),
   switchToOllama: (model?: string, url?: string) => ipcRenderer.invoke("switch-to-ollama", model, url),
   switchToGemini: (apiKey?: string) => ipcRenderer.invoke("switch-to-gemini", apiKey),
+  switchToOpenAI: (apiKey?: string, model?: string) => ipcRenderer.invoke("switch-to-openai", apiKey, model),
   testLlmConnection: () => ipcRenderer.invoke("test-llm-connection"),
+  getOpenAIConfig: () => ipcRenderer.invoke("get-openai-config"),
   
   invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
   onThemeChange: (callback: (theme: "light" | "dark") => void) => {

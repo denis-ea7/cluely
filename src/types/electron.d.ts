@@ -25,7 +25,9 @@ export interface ElectronAPI {
   analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   quitApp: () => Promise<void>
+  getOpenAIConfig: () => Promise<{ apiKey: string; model: string }>
   invoke: (channel: string, ...args: any[]) => Promise<any>
+  switchToOpenAI: (apiKey?: string, model?: string) => Promise<{ success: boolean; error?: string }>
 }
 
 declare global {
