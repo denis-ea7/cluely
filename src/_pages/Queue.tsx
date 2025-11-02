@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { useQuery } from "react-query"
 import ScreenshotQueue from "../components/Queue/ScreenshotQueue"
 import {
@@ -283,7 +287,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
             {/* Chat */}
             {isChatOpen && (
               <div className="px-3 py-3">
-              <div className="flex-1 overflow-y-auto mb-2 p-3 rounded-lg bg-black/40 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-gray-700/50 shadow-lg">
+              <div className="flex-1 overflow-y-auto mb-2 p-3 rounded-lg bg-black/40 backdrop-blur-md min-h-[120px] glass-content border border-gray-700/50 shadow-lg" style={{ maxHeight: '70vh' }}>
               {chatMessages.length === 0 ? (
                 <div className="text-sm text-gray-600 text-center mt-8">
                   💬 Chat with {currentModel.provider === "ollama" ? "🏠" : "☁️"} {currentModel.model}
@@ -307,7 +311,70 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
                       style={{ wordBreak: "break-word", lineHeight: "1.4" }}
                     >
                       <div className="flex justify-between gap-2">
-                        <div className="flex-1">{msg.text}</div>
+                        <div className="flex-1">
+                          {msg.role === "gemini" ? (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                ul: (props: any) => (
+                                  <ul className="list-disc pl-5 space-y-1" {...props} />
+                                ),
+                                ol: (props: any) => (
+                                  <ol className="list-decimal pl-5 space-y-1" {...props} />
+                                ),
+                                p: (props: any) => (
+                                  <p className="mb-2" {...props} />
+                                ),
+                                li: (props: any) => (
+                                  <li className="mb-1" {...props} />
+                                ),
+                                h1: (props: any) => (
+                                  <h1 className="text-base font-semibold mb-2" {...props} />
+                                ),
+                                h2: (props: any) => (
+                                  <h2 className="text-sm font-semibold mb-2" {...props} />
+                                ),
+                                h3: (props: any) => (
+                                  <h3 className="text-xs font-semibold mb-1" {...props} />
+                                ),
+                                a: (props: any) => (
+                                  <a className="underline text-blue-300 hover:text-blue-200" target="_blank" rel="noreferrer" {...props} />
+                                ),
+                                code(props: any) {
+                                  const { inline, className, children, ...rest } = props
+                                  const match = /language-(\w+)/.exec(className || "")
+                                  if (!inline) {
+                                    return (
+                                      <SyntaxHighlighter
+                                        style={vscDarkPlus as any}
+                                        language={match?.[1] as any}
+                                        PreTag="div"
+                                        customStyle={{
+                                          margin: 0,
+                                          borderRadius: 6,
+                                          border: "1px solid rgba(255,255,255,0.1)",
+                                          background: "#0b0b0b"
+                                        }}
+                                        {...(rest as any)}
+                                      >
+                                        {String(children).replace(/\n$/, "")}
+                                      </SyntaxHighlighter>
+                                    )
+                                  }
+                                  return (
+                                    <code className="px-1 py-0.5 rounded bg-white/10" {...(rest as any)}>
+                                      {children}
+                                    </code>
+                                  )
+                                }
+                              }}
+                            >
+                              {msg.text}
+                            </ReactMarkdown>
+                          ) : (
+                            <span>{msg.text}</span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           className="text-[10px] opacity-70 hover:opacity-100 bg-white/10 hover:bg-white/20 rounded px-2"

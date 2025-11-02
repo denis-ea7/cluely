@@ -28,12 +28,30 @@ export class ProcessingHelper {
       console.log("[ProcessingHelper] Initializing with Ollama")
       this.llmHelper = new LLMHelper(undefined, true, ollamaModel, ollamaUrl)
     } else {
-      const apiKey = process.env.GEMINI_API_KEY
-      if (!apiKey) {
-        throw new Error("GEMINI_API_KEY not found in environment variables. Set GEMINI_API_KEY or enable Ollama with USE_OLLAMA=true")
+      // Gather Gemini API keys with support for multiple keys/rotation
+      const envKeys: string[] = []
+      const listFromCombined = (process.env.GEMINI_API_KEYS || "")
+        .split(/[,\s]+/)
+        .map(k => k.trim())
+        .filter(k => !!k)
+      envKeys.push(...listFromCombined)
+      // Backward compatibility: GEMINI_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2, ...
+      const direct = process.env.GEMINI_API_KEY
+      if (direct) envKeys.push(direct)
+      for (let i = 1; i <= 10; i++) {
+        const v = process.env[`GEMINI_API_KEY_${i}`]
+        if (v) envKeys.push(v)
       }
-      console.log("[ProcessingHelper] Initializing with Gemini")
-      this.llmHelper = new LLMHelper(apiKey, false)
+
+      // De-duplicate while preserving order
+      const seen = new Set<string>()
+      const keys = envKeys.filter(k => (seen.has(k) ? false : (seen.add(k), true)))
+
+      if (keys.length === 0) {
+        throw new Error("Gemini API key(s) not found. Provide GEMINI_API_KEY or GEMINI_API_KEYS or GEMINI_API_KEY_1,2,... or enable Ollama with USE_OLLAMA=true")
+      }
+      console.log(`[ProcessingHelper] Initializing with Gemini (keys: ${keys.length})`)
+      this.llmHelper = new LLMHelper(keys, false)
     }
   }
 
