@@ -249,15 +249,19 @@ const Solutions: React.FC<SolutionsProps> = ({ setView }) => {
       window.electronAPI.onSolutionStart(async () => {
         // Reset UI state for a new solution
         setSolutionData(null)
-        setThoughtsData(null)
+        setThoughtsData(null) 
         setTimeComplexityData(null)
         setSpaceComplexityData(null)
         setCustomContent(null)
         setAudioResult(null)
 
-        // Start audio recording from user's microphone
+        // Start audio recording from user's microphone (respect selected input from Queue)
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          const saved = (() => { try { return localStorage.getItem('audioInputId') || '' } catch { return '' } })()
+          const constraints: MediaStreamConstraints = saved
+            ? { audio: { deviceId: { exact: saved } as any } }
+            : { audio: true }
+          const stream = await navigator.mediaDevices.getUserMedia(constraints)
           const mediaRecorder = new MediaRecorder(stream)
           const chunks: Blob[] = []
           mediaRecorder.ondataavailable = (e) => chunks.push(e.data)
