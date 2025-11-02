@@ -26,6 +26,7 @@ export interface ElectronAPI {
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   quitApp: () => Promise<void>
   invoke: (channel: string, ...args: any[]) => Promise<any>
+  onThemeChange: (callback: (theme: "light" | "dark") => void) => () => void
 }
 
 declare global {
