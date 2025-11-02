@@ -57,6 +57,7 @@ declare global {
       testLlmConnection: () => Promise<{ success: boolean; error?: string }>
       
       invoke: (channel: string, ...args: any[]) => Promise<any>
+      onThemeChange: (callback: (theme: "light" | "dark") => void) => () => void
     }
   }
 }
