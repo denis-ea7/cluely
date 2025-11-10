@@ -1,13 +1,3 @@
-// Simple key-agent service: fetches AI keys from your backend and caches them in RAM.
-// Run as a separate Node process on your server: `node index.js`
-// SECURITY: Keys come ONLY from backend - no hardcoded defaults or env fallbacks.
-// Env:
-// - PORT: HTTP port (default 8089)
-// - BACKEND_KEYS_URL: absolute URL to fetch keys from (REQUIRED - no fallbacks)
-// - BACKEND_AUTH_TOKEN: bearer token or secret for backend auth (optional)
-// - CACHE_TTL_MS: cache time (ms) for keys before refresh (default 5 minutes)
-// - CORS_ORIGIN: allowed origin for browser-based calls (optional)
-
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -29,7 +19,6 @@ if (CORS_ORIGIN) {
   );
 }
 
-// In-memory cache
 let cachedKeys = null;
 let cacheTimestamp = 0;
 
@@ -42,12 +31,6 @@ async function fetchKeysFromBackend() {
     headers.Authorization = `Bearer ${BACKEND_AUTH_TOKEN}`;
   }
   const res = await axios.get(BACKEND_KEYS_URL, { headers, timeout: 15000 });
-  // Expected shape (example):
-  // {
-  //   primary: { token: "sk-***", wsUrl: "wss://...", chatUrl: "https://...", model: "gpt-4.1" },
-  //   gemini:  { apiKeys: ["...", "..."] },
-  //   ollama:  { url: "http://localhost:11434", model: "llama3.2" } // optional
-  // }
   if (!res.data || !Object.keys(res.data).length) {
     throw new Error("Backend returned empty keys response");
   }
@@ -87,7 +70,6 @@ app.get("/keys", async (req, res) => {
   }
 });
 
-// Validate required env on startup
 if (!BACKEND_KEYS_URL) {
   console.error("[key-agent] ERROR: BACKEND_KEYS_URL is required. Keys must come from backend only.");
   process.exit(1);

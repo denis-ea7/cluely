@@ -1,5 +1,3 @@
-// ProcessingHelper.ts
-
 import { AppState } from "./main"
 import { LLMHelper } from "./LLMHelper"
 import { KeyClient, KeysResponse } from "./KeyClient"
@@ -20,22 +18,21 @@ export class ProcessingHelper {
   constructor(appState: AppState) {
     this.appState = appState
   }
-
+    
   public async initialize(): Promise<void> {
-    // Prefer centralized key-agent if provided
     const keyAgentUrl = process.env.KEY_AGENT_URL
     const clientToken = process.env.KEY_AGENT_CLIENT_TOKEN
     const useOllama = process.env.USE_OLLAMA === "true"
-    const ollamaModel = process.env.OLLAMA_MODEL // Don't set default here, let LLMHelper auto-detect
+    const ollamaModel = process.env.OLLAMA_MODEL
     const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434"
 
     const initFromKeys = (keys: KeysResponse) => {
       if (!keys) {
         throw new Error("Keys are required. Must be fetched from key-agent backend.")
       }
-
-      if (useOllama) {
-        console.log("[ProcessingHelper] Initializing with Ollama")
+    
+    if (useOllama) {
+      console.log("[ProcessingHelper] Initializing with Ollama")
         if (!keys.primary) {
           throw new Error("Primary AI keys are required from backend")
         }
@@ -43,7 +40,6 @@ export class ProcessingHelper {
         return
       }
 
-      // Gather Gemini keys from key-agent only
       const list: string[] = []
       if (keys?.gemini?.apiKeys?.length) {
         list.push(...keys.gemini.apiKeys)
@@ -60,7 +56,6 @@ export class ProcessingHelper {
       this.llmHelper = new LLMHelper(list, false, undefined, undefined, keys.primary)
     }
 
-    // If KEY_AGENT_URL is set, keys MUST come from backend (no env fallback)
     if (keyAgentUrl) {
       const kc = new KeyClient(keyAgentUrl, clientToken)
       try {
@@ -76,8 +71,6 @@ export class ProcessingHelper {
         throw new Error(`Cannot start without keys from backend: ${errMsg}`)
       }
     } else {
-      // Development mode: allow env variables (but still no hardcoded defaults)
-      // This is for local dev only - production must use KEY_AGENT_URL
       console.warn("[ProcessingHelper] WARNING: KEY_AGENT_URL not set. Using env variables (dev mode only).")
       const envPrimary = process.env.PRIMARY_TOKEN && process.env.PRIMARY_WS_URL && process.env.PRIMARY_CHAT_URL && process.env.PRIMARY_MODEL
         ? {
@@ -135,7 +128,6 @@ export class ProcessingHelper {
         return
       }
 
-      // Check if last screenshot is an audio file
       const allPaths = this.appState.getScreenshotHelper().getScreenshotQueue();
       const lastPath = allPaths[allPaths.length - 1];
       if (lastPath.endsWith('.mp3') || lastPath.endsWith('.wav')) {
@@ -153,7 +145,6 @@ export class ProcessingHelper {
         }
       }
 
-      // NEW: Handle screenshot as plain text (like audio)
       mainWindow.webContents.send(this.appState.PROCESSING_EVENTS.INITIAL_START)
       this.appState.setView("solutions")
       this.currentProcessingAbortController = new AbortController()
@@ -178,7 +169,6 @@ export class ProcessingHelper {
       }
       return;
     } else {
-      // Debug mode
       const extraScreenshotQueue = this.appState.getScreenshotHelper().getExtraScreenshotQueue()
       if (extraScreenshotQueue.length === 0) {
         console.log("No extra screenshots to process")
@@ -190,17 +180,14 @@ export class ProcessingHelper {
       this.currentExtraProcessingAbortController = new AbortController()
 
       try {
-        // Get problem info and current solution
         const problemInfo = this.appState.getProblemInfo()
         if (!problemInfo) {
           throw new Error("No problem info available")
         }
 
-        // Get current solution from state
         const currentSolution = await this.llmHelper.generateSolution(problemInfo)
         const currentCode = currentSolution.solution.code
 
-        // Debug the solution using vision model
         const debugResult = await this.llmHelper.debugSolutionWithImages(
           problemInfo,
           currentCode,
@@ -240,11 +227,9 @@ export class ProcessingHelper {
   }
 
   public async processAudioBase64(data: string, mimeType: string, chatHistory?: string) {
-    // Directly use LLMHelper to analyze inline base64 audio
     return this.llmHelper.analyzeAudioFromBase64(data, mimeType, chatHistory);
   }
 
-  // Add audio file processing method
   public async processAudioFile(filePath: string) {
     return this.llmHelper.analyzeAudioFile(filePath);
   }

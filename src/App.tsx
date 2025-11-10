@@ -1,22 +1,30 @@
 import { ToastProvider } from "./components/ui/toast"
 import Queue from "./_pages/Queue"
 import { ToastViewport } from "@radix-ui/react-toast"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Solutions from "./_pages/Solutions"
 import { useQuery, useQueryClient } from "react-query"
+import { PremiumModal } from "./components/PremiumModal"
+import { ControlBar } from "./components/ControlBar"
+import { TranscriptView } from "./components/TranscriptView"
+import { ChatView } from "./components/ChatView"
+import { SummaryOverlay } from "./components/SummaryOverlay"
+import { ProfileSettings } from "./components/ProfileSettings"
+import { useVoiceRecorder } from "./hooks/useVoiceRecorder"
 
 declare global {
   interface Window {
     electronAPI: {
-      //RANDOM GETTER/SETTERS
       updateContentDimensions: (dimensions: {
+        width: number
+        height: number
+      }) => Promise<void>
+      ensureWindowSize: (dimensions: {
         width: number
         height: number
       }) => Promise<void>
       getScreenshots: () => Promise<Array<{ path: string; preview: string }>>
 
-      //GLOBAL EVENTS
-      //TODO: CHECK THAT PROCESSING NO SCREENSHOTS AND TAKE SCREENSHOTS ARE BOTH CONDITIONAL
       onUnauthorized: (callback: () => void) => () => void
       onScreenshotTaken: (
         callback: (data: { path: string; preview: string }) => void
@@ -25,7 +33,6 @@ declare global {
       onResetView: (callback: () => void) => () => void
       takeScreenshot: () => Promise<void>
 
-      //INITIAL SOLUTION EVENTS
       deleteScreenshot: (
         path: string
       ) => Promise<{ success: boolean; error?: string }>
@@ -39,9 +46,9 @@ declare global {
       onDebugStart: (callback: () => void) => () => void
       onDebugError: (callback: (error: string) => void) => () => void
 
-      // Audio Processing
-      analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
+      analyzeAudioFromBase64: (data: string, mimeType: string, chatHistory?: string) => Promise<{ text: string; timestamp: number; isResponse?: boolean; transcript?: string }>
       analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
+      transcribePcm16: (pcmBase64: string, sampleRate?: number) => Promise<{ text: string; timestamp: number }>
 
       moveWindowLeft: () => Promise<void>
       moveWindowRight: () => Promise<void>
@@ -49,7 +56,6 @@ declare global {
       moveWindowDown: () => Promise<void>
       quitApp: () => Promise<void>
       
-      // LLM Model Management
       getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
       getAvailableOllamaModels: () => Promise<string[]>
       switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
@@ -59,13 +65,18 @@ declare global {
       invoke: (channel: string, ...args: any[]) => Promise<any>
       onThemeChange: (callback: (theme: "dark" | "dark") => void) => () => void
       
-      // Auth/Token Management
       getToken: () => Promise<string | null>
       setToken: (token: string) => Promise<{ success: boolean; error?: string }>
       clearToken: () => Promise<{ success: boolean }>
       openAuth: () => Promise<{ success: boolean }>
       onTokenUpdated: (callback: (token: string) => void) => () => void
       onWindowFocused: (callback: () => void) => () => void
+      
+      getPremiumInfo: () => Promise<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }>
+      canUseApp: () => Promise<boolean>
+      openPremiumPurchase: () => Promise<{ success: boolean }>
+      refreshPremiumInfo: () => Promise<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }>
+      onPremiumStatusUpdated: (callback: (info: { isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }) => void) => () => void
     }
   }
 }
@@ -74,6 +85,20 @@ const App: React.FC = () => {
   const [view, setView] = useState<"queue" | "solutions" | "debug">("queue")
   const containerRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
+  const [premiumInfo, setPremiumInfo] = useState<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null } | null>(null)
+  const [showPremiumModal, setShowPremiumModal] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [activeTab, setActiveTab] = useState<"chat" | "transcript">("chat")
+  const [transcript, setTranscript] = useState<string[]>([])
+  const [showSummary, setShowSummary] = useState(false)
+  const [summaryText, setSummaryText] = useState("")
+  const [showProfile, setShowProfile] = useState(false)
+  const [sessionActive, setSessionActive] = useState(true)
+  const [lastAssistantAnswer, setLastAssistantAnswer] = useState("")
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const transcriptRef = useRef<string[]>([])
+  const conversationRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([])
+  
   const { data: token, refetch: refetchToken } = useQuery(
     ["auth_token"], 
     async () => {
@@ -87,17 +112,44 @@ const App: React.FC = () => {
       }
     },
     {
-      refetchInterval: false, // Don't poll automatically
-      refetchOnWindowFocus: true, // Refetch when window gets focus (important!)
-      refetchOnReconnect: true, // Refetch on reconnect
-      staleTime: 1000, // Consider data stale after 1 second
-      cacheTime: 5000 // Cache for 5 seconds
+      refetchInterval: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      staleTime: 1000,
+      cacheTime: 5000
     }
   )
 
-  // Effect for height monitoring
+  const { data: premiumData, refetch: refetchPremium } = useQuery(
+    ["premium_info"],
+    async () => {
+      try {
+        const info = await window.electronAPI.getPremiumInfo?.()
+        console.log("[App] Premium info:", info)
+        return info
+      } catch (e) {
+        console.error("[App] Error getting premium info:", e)
+        return { isPremium: false, premiumUntil: null, timeRemaining: null }
+      }
+    },
+    {
+      refetchInterval: 1000,
+      enabled: !!token,
+      staleTime: 0
+    }
+  )
+
   useEffect(() => {
-    // Dynamic theme from main process
+    if (premiumData) {
+      setPremiumInfo(premiumData)
+      
+      if (!premiumData.isPremium && premiumData.timeRemaining !== null && premiumData.timeRemaining <= 0) {
+        setShowPremiumModal(true)
+      }
+    }
+  }, [premiumData])
+
+  useEffect(() => {
     const cleanupTheme = window.electronAPI.onThemeChange?.((theme) => {
       if (theme === 'dark') {
         document.body.classList.add('theme-dark')
@@ -123,19 +175,19 @@ const App: React.FC = () => {
     }
   }, [])
 
-  // Separate effect for token updates - this needs refetchToken in dependencies
   useEffect(() => {
     console.log("[App] Setting up token update listener...")
     
-    // Listen for token updates from deep link
     const cleanupTokenUpdate = window.electronAPI.onTokenUpdated?.((newToken: string) => {
       console.log("[App] ⚡ Token updated event received from deep link, length:", newToken.length)
       
-      // Immediately update the query cache with the new token
       queryClient.setQueryData(["auth_token"], newToken)
       console.log("[App] ✅ Token cache updated immediately")
       
-      // Also refetch to ensure consistency and trigger UI update
+      setTimeout(() => {
+        refetchPremium()
+      }, 500)
+      
       setTimeout(() => {
         refetchToken().then((result) => {
           console.log("[App] ✅ Token refetched after deep link update, result:", result.data ? "token exists" : "no token")
@@ -145,20 +197,27 @@ const App: React.FC = () => {
       }, 200)
     })
 
-    // Listen for window focus from Electron main process
+    const cleanupPremiumUpdate = window.electronAPI.onPremiumStatusUpdated?.((info) => {
+      console.log("[App] ⚡ Premium status updated:", info)
+      setPremiumInfo(info)
+      queryClient.setQueryData(["premium_info"], info)
+      
+      if (!info.isPremium && info.timeRemaining !== null && info.timeRemaining <= 0) {
+        setShowPremiumModal(true)
+      }
+    })
+
     const cleanupWindowFocused = window.electronAPI.onWindowFocused?.(() => {
       console.log("[App] 👁️ Window focused event from Electron, checking token...")
       refetchToken()
     })
     
-    // Also listen for browser window focus events
     const handleFocus = () => {
       console.log("[App] 👁️ Browser window focused, checking token...")
       refetchToken()
     }
     window.addEventListener('focus', handleFocus)
     
-    // Also check on visibility change (when tab/window becomes visible)
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         console.log("[App] 👁️ Window became visible, checking token...")
@@ -170,11 +229,12 @@ const App: React.FC = () => {
     return () => {
       console.log("[App] Cleaning up token update listener...")
       cleanupTokenUpdate?.()
+      cleanupPremiumUpdate?.()
       cleanupWindowFocused?.()
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [refetchToken, queryClient])
+  }, [refetchToken, refetchPremium, queryClient])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -190,13 +250,10 @@ const App: React.FC = () => {
       updateHeight()
     })
 
-    // Initial height update
     updateHeight()
 
-    // Observe for changes
     resizeObserver.observe(containerRef.current)
 
-    // Also update height when view changes
     const mutationObserver = new MutationObserver(() => {
       updateHeight()
     })
@@ -212,7 +269,7 @@ const App: React.FC = () => {
       resizeObserver.disconnect()
       mutationObserver.disconnect()
     }
-  }, [view]) // Re-run when view changes
+  }, [view])
 
   useEffect(() => {
     const cleanupFunctions = [
@@ -228,7 +285,6 @@ const App: React.FC = () => {
         setView("queue")
         console.log("Unauthorized")
       }),
-      // Update this reset handler
       window.electronAPI.onResetView(() => {
         console.log("Received 'reset-view' message from main process")
 
@@ -251,13 +307,216 @@ const App: React.FC = () => {
     }
   }, [])
 
+  async function geminiAsk(message: string): Promise<string> {
+    try {
+      const r = await window.electronAPI.invoke("gemini-chat", message)
+      if (r && typeof r === "string") return r
+      if (r && typeof r?.text === "string") return r.text
+      return String(r ?? "")
+    } catch (e: any) {
+      return "Ошибка: " + (e?.message || String(e))
+    }
+  }
+
+  const appendTranscript = useCallback((entry: { speaker: "user" | "assistant"; text: string }) => {
+    if (!entry.text?.trim()) return
+    const clean = entry.text.trim()
+    const prefix = entry.speaker === "user" ? "Пользователь" : "Ассистент"
+    setTranscript((prev) => {
+      const next = [...prev, `${prefix}: ${clean}`]
+      transcriptRef.current = next
+      return next
+    })
+    conversationRef.current = [...conversationRef.current, { role: entry.speaker, text: clean }]
+  }, [])
+
+  const conversationToString = useCallback(() => {
+    if (!conversationRef.current.length) return ""
+    return conversationRef.current
+      .map((item) => `${item.role === "user" ? "User" : "Assistant"}: ${item.text}`)
+      .join("\n")
+  }, [])
+
+  // Агрегатор голоса как в del2.js
+  const lastVoiceTextRef = useRef<string>("")
+  const lastSentVoiceTextRef = useRef<string>("")
+  const voiceTimerRef = useRef<number | null>(null)
+
+  const handleVoiceResult = useCallback(
+    async (result: { text: string; isResponse?: boolean; transcript?: string }) => {
+      const incoming = result?.text?.trim()
+      if (!incoming) return
+      if (result.isResponse) {
+        if (result.transcript?.trim()) {
+          appendTranscript({ speaker: "user", text: result.transcript.trim() })
+        }
+        appendTranscript({ speaker: "assistant", text: incoming })
+        setLastAssistantAnswer(incoming)
+        return
+      }
+      // Не вызываем чат на каждый interim — копим последний текст
+      lastVoiceTextRef.current = incoming
+    },
+    []
+  )
+
+  const {
+    isRecording: isVoiceRecording,
+    inputLevel: voiceInputLevel,
+    devices: voiceDevices,
+    selectedDeviceId: selectedVoiceDevice,
+    setSelectedDeviceId: setSelectedVoiceDevice,
+    refreshDevices: refreshVoiceDevices,
+    toggleRecording: toggleVoiceRecording,
+    stopRecording: stopVoiceRecording,
+    error: voiceRecorderError
+  } = useVoiceRecorder({
+    onResult: handleVoiceResult,
+    getChatHistory: conversationToString
+  })
+
+  // Таймер: каждые 5 сек отправляем последний распознанный текст, если он изменился
+  useEffect(() => {
+    if (!isVoiceRecording) {
+      if (voiceTimerRef.current) {
+        window.clearInterval(voiceTimerRef.current)
+        voiceTimerRef.current = null
+      }
+      return
+    }
+    if (voiceTimerRef.current) return
+    voiceTimerRef.current = window.setInterval(async () => {
+      const text = (lastVoiceTextRef.current || "").trim()
+      if (!text || text === lastSentVoiceTextRef.current) return
+      lastSentVoiceTextRef.current = text
+      appendTranscript({ speaker: "user", text })
+      try {
+        const history = conversationToString()
+        const prompt = history
+          ? `Контекст диалога:\n${history}\n\nОтветь на последнюю реплику пользователя, учитывая контекст.`
+          : `Ответь на следующий запрос пользователя:\n${text}`
+        const response = await geminiAsk(prompt)
+        appendTranscript({ speaker: "assistant", text: response })
+        setLastAssistantAnswer(response)
+      } catch (err: any) {
+        const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки голоса."
+        appendTranscript({ speaker: "assistant", text: message })
+        setLastAssistantAnswer(message)
+        setVoiceError(message)
+      }
+    }, 5000) as unknown as number
+    return () => {
+      if (voiceTimerRef.current) {
+        window.clearInterval(voiceTimerRef.current)
+        voiceTimerRef.current = null
+      }
+    }
+  }, [isVoiceRecording, appendTranscript, conversationToString])
+
+  const selectVoiceDevice = useCallback(
+    (id: string) => {
+      setSelectedVoiceDevice(id)
+    },
+    [setSelectedVoiceDevice]
+  )
+
+  const handleRecordToggle = useCallback(
+    async () => {
+      const wasRecording = isVoiceRecording
+      try {
+        await toggleVoiceRecording()
+        if (!wasRecording) setVoiceError(null)
+      } catch (err: any) {
+        const message = err?.message ? `Не удалось начать запись: ${err.message}` : "Не удалось начать запись."
+        setVoiceError(message)
+      }
+    },
+    [isVoiceRecording, toggleVoiceRecording]
+  )
+
+  const handleChatAnswered = useCallback(
+    (payload: { question?: string; answer: string; type: "assist" | "custom" }) => {
+      if (payload.type === "custom" && payload.question?.trim()) {
+        appendTranscript({ speaker: "user", text: payload.question.trim() })
+      }
+      if (payload.answer?.trim()) {
+        appendTranscript({ speaker: "assistant", text: payload.answer.trim() })
+        setLastAssistantAnswer(payload.answer.trim())
+      }
+    },
+    [appendTranscript]
+  )
+
+  useEffect(() => {
+    if (!voiceRecorderError) return
+    setVoiceError(voiceRecorderError)
+  }, [voiceRecorderError])
+
+  useEffect(() => {
+    if (!voiceError) return
+    const timer = window.setTimeout(() => setVoiceError(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [voiceError])
+
+  useEffect(() => {
+    if (!sessionActive && isVoiceRecording) {
+      stopVoiceRecording()
+    }
+  }, [sessionActive, isVoiceRecording, stopVoiceRecording])
+
+  useEffect(() => {
+    transcriptRef.current = transcript
+  }, [transcript])
+
+  const startNewSession = () => {
+    stopVoiceRecording()
+    conversationRef.current = []
+    transcriptRef.current = []
+    setTranscript([])
+    setSummaryText("")
+    setShowSummary(false)
+    setSessionActive(true)
+    setActiveTab("chat")
+    setPaused(false)
+    setShowProfile(false)
+    setLastAssistantAnswer("")
+    setVoiceError(null)
+    setTimeout(() => {
+      window.electronAPI.updateContentDimensions?.({
+        width: document.body.scrollWidth,
+        height: document.body.scrollHeight
+      })
+    }, 100)
+  }
+
+  async function onStopSession() {
+    stopVoiceRecording()
+    setSessionActive(false)
+    try {
+      const ctx = transcript.join("\n")
+      const prompt =
+        "Сделай краткое, структурированное резюме по этой стенограмме встречи. " +
+        "Выдели цели, принятые решения, задачи, сроки, риски. " +
+        "Стенограмма:\n" +
+        ctx
+      const result = await geminiAsk(prompt)
+      setSummaryText(result)
+      setShowSummary(true)
+      setTimeout(() => {
+        window.electronAPI.ensureWindowSize?.({ width: 900, height: 640 })
+      }, 50)
+    } catch (e) {
+      setSummaryText("Не удалось получить резюме.")
+      setShowSummary(true)
+    }
+  }
+
   return (
     <div ref={containerRef} className="min-h-0">
-      <ToastProvider>
+        <ToastProvider>
         {(() => {
-          // Debug logging
           if (token) {
-            console.log("[App] 🔑 Token exists in UI, length:", token.length)
+            // console.log("[App] 🔑 Token exists in UI, length:", token.length)
           } else {
             console.log("[App] ❌ No token in UI")
           }
@@ -301,7 +560,6 @@ const App: React.FC = () => {
                         console.log("[App] Opening auth page...")
                         const result = await (window.electronAPI.openAuth?.() || window.electronAPI.invoke("open-auth"))
                         console.log("[App] Open auth result:", result)
-                        // Refetch token after delays to check if auth was successful
                         setTimeout(() => refetchToken(), 2000)
                         setTimeout(() => refetchToken(), 5000)
                         setTimeout(() => refetchToken(), 10000)
@@ -380,15 +638,118 @@ const App: React.FC = () => {
             )
           }
         })()}
-        {view === "queue" ? (
-          <Queue setView={setView} />
-        ) : view === "solutions" ? (
-          <Solutions setView={setView} />
-        ) : (
-          <></>
+        {voiceError && (
+          <div
+            style={{
+              marginBottom: 12,
+              background: "rgba(220,38,38,0.85)",
+              color: "#fff",
+              borderRadius: 8,
+              padding: "8px 12px",
+              fontSize: "12px",
+              boxShadow: "0 4px 12px rgba(220,38,38,0.4)"
+            }}
+          >
+            {voiceError}
+          </div>
         )}
-        <ToastViewport />
-      </ToastProvider>
+          {view === "queue" ? (
+            <Queue setView={setView} onTranscriptUpdate={appendTranscript} />
+          ) : view === "solutions" ? (
+            <Solutions setView={setView} />
+          ) : (
+            <></>
+          )}
+          <ToastViewport />
+        
+        <PremiumModal
+          isOpen={showPremiumModal}
+          onClose={() => setShowPremiumModal(false)}
+          onPurchase={async () => {
+            try {
+              await window.electronAPI.openPremiumPurchase?.()
+              setShowPremiumModal(false)
+            } catch (e) {
+              console.error("[App] Error opening premium purchase:", e)
+            }
+          }}
+          timeRemaining={premiumInfo?.timeRemaining || null}
+        />
+
+        {sessionActive && (
+          <>
+            <ControlBar
+              tab={activeTab}
+              onTabChange={(t) => {
+                setActiveTab(t)
+                setTimeout(() => {
+                  window.electronAPI.updateContentDimensions?.({
+                    width: document.body.scrollWidth,
+                    height: document.body.scrollHeight
+                  })
+                }, 50)
+              }}
+              paused={paused}
+              onPauseToggle={() => setPaused((p) => !p)}
+              onStop={onStopSession}
+              onHome={() => setShowProfile(true)}
+              onToggleRecording={handleRecordToggle}
+              recording={isVoiceRecording}
+              inputLevel={voiceInputLevel}
+            />
+
+            <div
+              style={{
+                position: "fixed",
+                left: "50%",
+                top: 150,
+                transform: "translateX(-50%)",
+                zIndex: 9990
+              }}
+            >
+              {activeTab === "transcript" ? (
+                <TranscriptView lines={transcript} />
+              ) : (
+                <ChatView
+                  transcript={transcript}
+                  onAsk={geminiAsk}
+                  externalAnswer={lastAssistantAnswer}
+                  onAnswered={handleChatAnswered}
+                />
+              )}
+            </div>
+          </>
+        )}
+
+        <SummaryOverlay
+          open={showSummary}
+          summary={summaryText}
+          onClose={() => setShowSummary(false)}
+          onNewSession={startNewSession}
+        />
+
+        {showProfile && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.55)",
+              zIndex: 9970,
+              overflow: "auto"
+            }}
+            onClick={() => setShowProfile(false)}
+          >
+            <div onClick={(e) => e.stopPropagation()}>
+              <ProfileSettings
+                voiceDevices={voiceDevices}
+                selectedDeviceId={selectedVoiceDevice}
+                onSelectDevice={selectVoiceDevice}
+                onRefreshDevices={refreshVoiceDevices}
+              />
+            </div>
+          </div>
+        )}
+        </ToastProvider>
     </div>
   )
 }

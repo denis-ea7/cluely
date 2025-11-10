@@ -8,6 +8,7 @@ import { ScreenshotHelper } from "./ScreenshotHelper"
 import { ShortcutsHelper } from "./shortcuts"
 import { ProcessingHelper } from "./ProcessingHelper"
 import { TokenManager } from "./TokenManager"
+import { PremiumManager } from "./PremiumManager"
 
 export class AppState {
   private static instance: AppState | null = null
@@ -16,9 +17,9 @@ export class AppState {
   private screenshotHelper: ScreenshotHelper
   public shortcutsHelper: ShortcutsHelper
   public processingHelper: ProcessingHelper
+  public premiumManager!: PremiumManager
   private tray: Tray | null = null
 
-  // View management
   private view: "queue" | "solutions" = "queue"
 
   private problemInfo: {
@@ -27,39 +28,31 @@ export class AppState {
     output_format: Record<string, any>
     constraints: Array<Record<string, any>>
     test_cases: Array<Record<string, any>>
-  } | null = null // Allow null
+  } | null = null
 
   private hasDebugged: boolean = false
 
-  // Processing events
   public readonly PROCESSING_EVENTS = {
-    //global states
     UNAUTHORIZED: "procesing-unauthorized",
     NO_SCREENSHOTS: "processing-no-screenshots",
 
-    //states for generating the initial solution
     INITIAL_START: "initial-start",
     PROBLEM_EXTRACTED: "problem-extracted",
     SOLUTION_SUCCESS: "solution-success",
     INITIAL_SOLUTION_ERROR: "solution-error",
 
-    //states for processing the debugging
     DEBUG_START: "debug-start",
     DEBUG_SUCCESS: "debug-success",
     DEBUG_ERROR: "debug-error"
   } as const
 
   constructor() {
-    // Initialize WindowHelper with this
     this.windowHelper = new WindowHelper(this)
 
-    // Initialize ScreenshotHelper
     this.screenshotHelper = new ScreenshotHelper(this.view)
 
-    // Initialize ProcessingHelper
     this.processingHelper = new ProcessingHelper(this)
 
-    // Initialize ShortcutsHelper
     this.shortcutsHelper = new ShortcutsHelper(this)
   }
 
@@ -70,7 +63,6 @@ export class AppState {
     return AppState.instance
   }
 
-  // Getters and Setters
   public getMainWindow(): BrowserWindow | null {
     return this.windowHelper.getMainWindow()
   }
@@ -108,7 +100,6 @@ export class AppState {
     return this.screenshotHelper.getExtraScreenshotQueue()
   }
 
-  // Window management methods
   public createWindow(): void {
     this.windowHelper.createWindow()
   }
@@ -135,17 +126,18 @@ export class AppState {
     this.windowHelper.setWindowDimensions(width, height)
   }
 
+  public ensureWindowSize(minWidth: number, minHeight: number): void {
+    this.windowHelper.ensureWindowSize(minWidth, minHeight)
+  }
+
   public clearQueues(): void {
     this.screenshotHelper.clearQueues()
 
-    // Clear problem info
     this.problemInfo = null
 
-    // Reset view to initial state
     this.setView("queue")
   }
 
-  // Screenshot management methods
   public async takeScreenshot(): Promise<string> {
     if (!this.getMainWindow()) throw new Error("No main window available")
 
@@ -167,7 +159,6 @@ export class AppState {
     return this.screenshotHelper.deleteScreenshot(path)
   }
 
-  // New methods to move the window
   public moveWindowLeft(): void {
     this.windowHelper.moveWindowLeft()
   }
@@ -187,13 +178,10 @@ export class AppState {
   }
 
   public createTray(): void {
-    // Create a simple tray icon
     const image = nativeImage.createEmpty()
     
-    // Try to use a system template image for better integration
     let trayImage = image
     try {
-      // Create a minimal icon - just use an empty image and set the title
       trayImage = nativeImage.createFromBuffer(Buffer.alloc(0))
     } catch (error) {
       console.log("Using empty tray image")
@@ -251,12 +239,10 @@ export class AppState {
     this.tray.setToolTip('Interview Coder - Press Cmd+Shift+Space to show')
     this.tray.setContextMenu(contextMenu)
     
-    // Set a title for macOS (will appear in menu bar)
     if (process.platform === 'darwin') {
       this.tray.setTitle('IC')
     }
     
-    // Double-click to show window
     this.tray.on('double-click', () => {
       this.centerAndShowWindow()
     })
@@ -271,9 +257,7 @@ export class AppState {
   }
 }
 
-// Application initialization
 async function initializeApp() {
-  // Load .env and setup proxy if provided
   try {
     dotenv.config()
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.PROXY_URL
@@ -286,8 +270,10 @@ async function initializeApp() {
   }
   const appState = AppState.getInstance()
   const tokenManager = new TokenManager()
+  const apiUrl = process.env.API_URL || process.env.SITE_URL?.replace(":3005", ":4000") || "http://109.61.108.37:4000"
+  const premiumManager = new PremiumManager(tokenManager, apiUrl)
+  appState.premiumManager = premiumManager
 
-  // Initialize ProcessingHelper (loads keys from backend if KEY_AGENT_URL is set)
   try {
     console.log("[main] Initializing ProcessingHelper...")
     await appState.processingHelper.initialize()
@@ -299,13 +285,28 @@ async function initializeApp() {
     return
   }
 
-  // Initialize IPC handlers before window creation
+  app.whenReady().then(async () => {
+    const token = tokenManager.load()
+    if (token) {
+      console.log("[main] Token found, starting premium session...")
+      try {
+        const premiumInfo = await premiumManager.startSession()
+        console.log("[main] Premium session started:", premiumInfo)
+        
+        const mainWindow = appState.getMainWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("premium-status-updated", premiumInfo)
+        }
+      } catch (e) {
+        console.error("[main] Error starting premium session:", e)
+      }
+    }
+  })
+
   initializeIpcHandlers(appState)
 
-  // Deep link protocol registration
   const scheme = process.env.DEEPLINK_SCHEME || "cluely"
   
-  // Request single instance lock for deep link handling
   const gotTheLock = app.requestSingleInstanceLock()
   if (!gotTheLock) {
     console.log("[main] Another instance is running, quitting...")
@@ -313,7 +314,6 @@ async function initializeApp() {
     return
   }
   
-  // Register protocol handler
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
       app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1])])
@@ -323,8 +323,7 @@ async function initializeApp() {
   }
   console.log(`[main] Deep link scheme registered: ${scheme}://`)
 
-  // Helper function to handle deep links
-  function handleDeepLink(url: string, tokenManager: TokenManager, appState: AppState, scheme: string) {
+  async function handleDeepLink(url: string, tokenManager: TokenManager, appState: AppState, scheme: string) {
     try {
       const parsed = new URL(url)
       console.log(`[main] Parsed URL - protocol: ${parsed.protocol}, hostname: ${parsed.hostname}`)
@@ -338,13 +337,38 @@ async function initializeApp() {
           if (savedToken === token) {
             console.log(`[main] Token saved and verified successfully`)
             
-            // Function to notify renderer processes about token update
+            try {
+              const premiumInfo = await appState.premiumManager.startSession()
+              console.log(`[main] Premium session started after auth:`, premiumInfo)
+              
+              const notifyPremiumUpdate = (delay: number = 0) => {
+                setTimeout(() => {
+                  const mainWindow = appState.getMainWindow()
+                  if (mainWindow && !mainWindow.isDestroyed()) {
+                    try {
+                      const currentInfo = appState.premiumManager.getPremiumInfo()
+                      if (currentInfo) {
+                        mainWindow.webContents.send("premium-status-updated", currentInfo)
+                        console.log(`[main] ✅ Sent premium-status-updated event`)
+                      }
+                    } catch (e) {
+                      console.error(`[main] ❌ Error sending premium-status-updated event:`, e)
+                    }
+                  }
+                }, delay)
+              }
+              
+              notifyPremiumUpdate(500)
+              notifyPremiumUpdate(1500)
+            } catch (e) {
+              console.error(`[main] Error starting premium session:`, e)
+            }
+            
             const notifyTokenUpdate = (delay: number = 0) => {
               setTimeout(() => {
                 const mainWindow = appState.getMainWindow()
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   try {
-                    // Check if window is fully loaded
                     if (mainWindow.webContents.isLoading()) {
                       console.log(`[main] Window still loading, will send token-updated after load`)
                       mainWindow.webContents.once('did-finish-load', () => {
@@ -366,18 +390,40 @@ async function initializeApp() {
               }, delay)
             }
             
-            // Show window if app is ready
             if (app.isReady()) {
-              appState.centerAndShowWindow()
-              console.log(`[main] Window centered and shown after auth`)
+              const mainWindow = appState.getMainWindow()
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow.isMinimized()) {
+                  mainWindow.restore()
+                }
+                if (process.platform === "darwin") {
+                  app.dock?.show()
+                }
+                mainWindow.show()
+                mainWindow.focus()
+                mainWindow.setAlwaysOnTop(true)
+              }
               
-              // Notify immediately and with delays to ensure it's received
-              notifyTokenUpdate(300)  // After 300ms
-              notifyTokenUpdate(1000) // After 1 second
-              notifyTokenUpdate(2000) // After 2 seconds (fallback)
+              appState.centerAndShowWindow()
+              console.log(`[main] Window restored and shown after auth`)
+              
+              notifyTokenUpdate(300)
+              notifyTokenUpdate(1000)
+              notifyTokenUpdate(2000)
             } else {
               console.log(`[main] App not ready yet, token saved. Window will show when app is ready.`)
               app.whenReady().then(() => {
+                const mainWindow = appState.getMainWindow()
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  if (mainWindow.isMinimized()) {
+                    mainWindow.restore()
+                  }
+                  if (process.platform === "darwin") {
+                    app.dock?.show()
+                  }
+                  mainWindow.show()
+                  mainWindow.focus()
+                }
                 appState.centerAndShowWindow()
                 notifyTokenUpdate(300)
                 notifyTokenUpdate(1000)
@@ -398,21 +444,18 @@ async function initializeApp() {
     }
   }
 
-  // macOS deep link handler - must be registered before app is ready
   app.on("open-url", (event, url) => {
     event.preventDefault()
     console.log(`[main] Deep link received (macOS): ${url}`)
     handleDeepLink(url, tokenManager, appState, scheme)
   })
 
-  // Windows/Linux: handle protocol link passed as arg
   const maybeUrl = process.argv.find(arg => arg.startsWith(`${scheme}://`))
   if (maybeUrl) {
     console.log(`[main] Deep link received (Windows/Linux): ${maybeUrl}`)
     handleDeepLink(maybeUrl, tokenManager, appState, scheme)
   }
   
-  // Also handle deep links when app becomes ready (for delayed deep links)
   app.on("second-instance", (event, commandLine, workingDirectory) => {
     const deepLinkUrl = commandLine.find(arg => arg.startsWith(`${scheme}://`))
     if (deepLinkUrl) {
@@ -425,7 +468,6 @@ async function initializeApp() {
     console.log("App is ready")
     appState.createWindow()
     appState.createTray()
-    // Register global shortcuts using ShortcutsHelper
     appState.shortcutsHelper.registerGlobalShortcuts()
   })
 
@@ -436,16 +478,14 @@ async function initializeApp() {
     }
   })
 
-  // Quit when all windows are closed, except on macOS
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") {
       app.quit()
     }
   })
 
-  app.dock?.hide() // Hide dock icon (optional)
+  app.dock?.hide()
   app.commandLine.appendSwitch("disable-background-timer-throttling")
 }
 
-// Start the application
 initializeApp().catch(console.error)

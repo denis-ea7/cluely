@@ -1,5 +1,3 @@
-// ScreenshotHelper.ts
-
 import path from "node:path"
 import fs from "node:fs"
 import { app } from "electron"
@@ -19,14 +17,12 @@ export class ScreenshotHelper {
   constructor(view: "queue" | "solutions" = "queue") {
     this.view = view
 
-    // Initialize directories
     this.screenshotDir = path.join(app.getPath("userData"), "screenshots")
     this.extraScreenshotDir = path.join(
       app.getPath("userData"),
       "extra_screenshots"
     )
 
-    // Create directories if they don't exist
     if (!fs.existsSync(this.screenshotDir)) {
       fs.mkdirSync(this.screenshotDir)
     }
@@ -52,7 +48,6 @@ export class ScreenshotHelper {
   }
 
   public clearQueues(): void {
-    // Clear screenshotQueue
     this.screenshotQueue.forEach((screenshotPath) => {
       fs.unlink(screenshotPath, (err) => {
         if (err)
@@ -61,7 +56,6 @@ export class ScreenshotHelper {
     })
     this.screenshotQueue = []
 
-    // Clear extraScreenshotQueue
     this.extraScreenshotQueue.forEach((screenshotPath) => {
       fs.unlink(screenshotPath, (err) => {
         if (err)
@@ -81,7 +75,6 @@ export class ScreenshotHelper {
     try {
       hideMainWindow()
       
-      // Add a small delay to ensure window is hidden
       await new Promise(resolve => setTimeout(resolve, 100))
       
       let screenshotPath = ""
@@ -123,7 +116,6 @@ export class ScreenshotHelper {
       console.error("Error taking screenshot:", error)
       throw new Error(`Failed to take screenshot: ${error.message}`)
     } finally {
-      // Ensure window is always shown again
       showMainWindow()
     }
   }

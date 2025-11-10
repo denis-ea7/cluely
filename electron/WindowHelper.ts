@@ -5,13 +5,12 @@ import sharp from "sharp"
 import { AppState } from "main"
 import path from "node:path"
 import http from "http"
+import { WindowStateManager, WindowState } from "./WindowStateManager"
 
 const isDev = process.env.NODE_ENV === "development"
 
-// Try multiple ports in dev mode (Vite may use different port if 5180 is busy)
 const getStartUrl = () => {
   if (isDev) {
-    // Check if VITE_PORT is set, otherwise try common ports
     const vitePort = process.env.VITE_PORT || "5180"
     return `http://localhost:${vitePort}`
   }
@@ -26,42 +25,46 @@ export class WindowHelper {
   private windowPosition: { x: number; y: number } | null = null
   private windowSize: { width: number; height: number } | null = null
   private appState: AppState
+  private stateManager: WindowStateManager
 
-  // Initialize with explicit number type and 0 value
   private screenWidth: number = 0
   private screenHeight: number = 0
   private step: number = 0
   private currentX: number = 0
   private currentY: number = 0
+  private saveStateDebounceTimer: NodeJS.Timeout | null = null
 
   constructor(appState: AppState) {
     this.appState = appState
+    this.stateManager = new WindowStateManager()
   }
 
   public setWindowDimensions(width: number, height: number): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
 
-    // Get current window position
     const [currentX, currentY] = this.mainWindow.getPosition()
+    const currentBounds = this.mainWindow.getBounds()
 
-    // Get screen dimensions
     const primaryDisplay = screen.getPrimaryDisplay()
     const workArea = primaryDisplay.workAreaSize
 
-    // Use 75% width if debugging has occurred, otherwise use 60%
     const maxAllowedWidth = Math.floor(
-      workArea.width * (this.appState.getHasDebugged() ? 0.75 : 0.5)
+      workArea.width * (this.appState.getHasDebugged() ? 0.75 : 0.9)
     )
 
-    // Ensure width doesn't exceed max allowed width and height is reasonable
-    const newWidth = Math.min(width + 32, maxAllowedWidth)
-    const newHeight = Math.ceil(height)
+    const requestedWidth = width + 32
+    const requestedHeight = Math.ceil(height)
 
-    // Center the window horizontally if it would go off screen
+    const newWidth = Math.min(
+      Math.max(requestedWidth, currentBounds.width),
+      maxAllowedWidth
+    )
+    const newHeight = Math.max(requestedHeight, currentBounds.height)
+
+    if (newWidth !== currentBounds.width || newHeight !== currentBounds.height) {
     const maxX = workArea.width - newWidth
     const newX = Math.min(Math.max(currentX, 0), maxX)
 
-    // Update window bounds
     this.mainWindow.setBounds({
       x: newX,
       y: currentY,
@@ -69,10 +72,55 @@ export class WindowHelper {
       height: newHeight
     })
 
-    // Update internal state
     this.windowPosition = { x: newX, y: currentY }
     this.windowSize = { width: newWidth, height: newHeight }
     this.currentX = newX
+      this.debouncedSaveState()
+    }
+  }
+
+  public ensureWindowSize(minWidth: number, minHeight: number): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+
+    const bounds = this.mainWindow.getBounds()
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const workArea = primaryDisplay.workAreaSize
+
+    const maxAllowedWidth = Math.floor(workArea.width * 0.9)
+    const maxAllowedHeight = Math.floor(workArea.height * 0.9)
+
+    const requiredWidth = minWidth + 32
+    const requiredHeight = minHeight + 32
+
+    let newWidth = Math.max(bounds.width, requiredWidth)
+    let newHeight = Math.max(bounds.height, requiredHeight)
+
+    newWidth = Math.min(newWidth, maxAllowedWidth)
+    newHeight = Math.min(newHeight, maxAllowedHeight)
+
+    if (newWidth > bounds.width || newHeight > bounds.height) {
+      const currentX = bounds.x
+      const currentY = bounds.y
+      
+      const maxX = workArea.width - newWidth
+      const maxY = workArea.height - newHeight
+      
+      const adjustedX = Math.max(0, Math.min(currentX, maxX))
+      const adjustedY = Math.max(0, Math.min(currentY, maxY))
+
+      this.mainWindow.setBounds({
+        x: adjustedX,
+        y: adjustedY,
+        width: newWidth,
+        height: newHeight
+      })
+
+      this.windowPosition = { x: adjustedX, y: adjustedY }
+      this.windowSize = { width: newWidth, height: newHeight }
+      this.currentX = adjustedX
+      this.currentY = adjustedY
+      this.debouncedSaveState()
+    }
   }
 
   public createWindow(): void {
@@ -83,39 +131,58 @@ export class WindowHelper {
     this.screenWidth = workArea.width
     this.screenHeight = workArea.height
 
-    
-    // In dev mode, allow frame for debugging if DEBUG_WINDOW env var is set
     const useFrame = process.env.DEBUG_WINDOW === "true"
     
+    const savedState = this.stateManager.load()
+    const defaultWidth = 600
+    const defaultHeight = 700
+    
+    let windowWidth = savedState?.width || defaultWidth
+    let windowHeight = savedState?.height || defaultHeight
+    let windowX = savedState?.x
+    let windowY = savedState?.y
+    
+    if (savedState && (windowX === undefined || windowY === undefined)) {
+      windowX = Math.floor(workArea.width / 2 - windowWidth / 2)
+      windowY = Math.floor(workArea.height / 2 - windowHeight / 2)
+    } else if (!savedState) {
+      windowX = Math.floor(workArea.width / 2 - windowWidth / 2)
+      windowY = Math.floor(workArea.height / 2 - windowHeight / 2)
+    }
+    
+    if (windowX !== undefined && windowY !== undefined) {
+      const maxX = workArea.width - windowWidth
+      const maxY = workArea.height - windowHeight
+      windowX = Math.max(0, Math.min(windowX, maxX))
+      windowY = Math.max(0, Math.min(windowY, maxY))
+    }
+    
     const windowSettings: Electron.BrowserWindowConstructorOptions = {
-      width: 600, // Increased from 400 to 600 for better visibility
-      height: 700, // Increased from 600 to 700
-      minWidth: 400, // Increased from 300
-      minHeight: 300, // Increased from 200
+      width: windowWidth,
+      height: windowHeight,
+      minWidth: 400,
+      minHeight: 300,
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js"),
-        devTools: isDev // Allow DevTools in dev mode, but don't open automatically
+        devTools: isDev
       },
-      show: false, // Start hidden, then show after setup
+      show: false,
       alwaysOnTop: true,
-      frame: useFrame, // Only show frame if DEBUG_WINDOW=true
-      transparent: !useFrame, // Transparent unless debugging
+      frame: useFrame,
+      transparent: !useFrame,
       fullscreenable: false,
       hasShadow: !useFrame,
-      backgroundColor: "#00000000", // Always transparent background
+      backgroundColor: "#00000000",
       focusable: true,
       resizable: true,
       movable: true,
-      x: Math.floor(workArea.width / 2 - 300), // Center horizontally (half of 600px width)
-      y: Math.floor(workArea.height / 2 - 350) // Center vertically (half of 700px height)
+      x: windowX ?? Math.floor(workArea.width / 2 - windowWidth / 2),
+      y: windowY ?? Math.floor(workArea.height / 2 - windowHeight / 2)
     }
 
     this.mainWindow = new BrowserWindow(windowSettings)
-    // Only open DevTools if explicitly requested via env var
-    // Note: DEBUG_WINDOW=true enables frame and transparency, but doesn't auto-open DevTools
-    // Use AUTO_OPEN_DEVTOOLS=true to automatically open DevTools
     if (process.env.AUTO_OPEN_DEVTOOLS === "true") {
       console.log("[WindowHelper] Opening DevTools (AUTO_OPEN_DEVTOOLS is set)")
       this.mainWindow.webContents.openDevTools()
@@ -132,28 +199,23 @@ export class WindowHelper {
       this.mainWindow.setAlwaysOnTop(true, "floating")
     }
     if (process.platform === "linux") {
-      // Linux-specific optimizations for better compatibility
       if (this.mainWindow.setHasShadow) {
         this.mainWindow.setHasShadow(false)
       }
-      // Keep window focusable on Linux for proper interaction
       this.mainWindow.setFocusable(true)
     } 
     this.mainWindow.setSkipTaskbar(true)
     this.mainWindow.setAlwaysOnTop(true)
 
-    // Check if a port is serving Vite by making HTTP request and checking response
     const checkVitePort = (port: number): Promise<boolean> => {
       return new Promise((resolve) => {
         const req = http.get(`http://localhost:${port}`, { timeout: 2000 }, (res) => {
-          // Check status code first - must be 200
           if (res.statusCode !== 200) {
-            res.resume() // Consume response to free up memory
+            res.resume()
             resolve(false)
             return
           }
 
-          // Check content-type - must be HTML
           const contentType = res.headers['content-type'] || ''
           if (!contentType.includes('text/html') && !contentType.includes('text/html;')) {
             res.resume()
@@ -168,7 +230,6 @@ export class WindowHelper {
             if (resolved) return
             data += chunk.toString()
             
-            // Check if response contains HTML structure (Vite serves HTML)
             if (data.length > 200) {
               const hasHtml = data.includes('<!DOCTYPE html') || 
                              data.includes('<html') ||
@@ -187,7 +248,6 @@ export class WindowHelper {
           
           res.on('end', () => {
             if (resolved) return
-            // Final check - must have HTML content
             const hasHtml = data.includes('<!DOCTYPE html') || 
                           data.includes('<html') ||
                           data.includes('<head')
@@ -203,9 +263,7 @@ export class WindowHelper {
       })
     }
 
-    // Find available Vite port by checking ports in order (5181 first since 5180 is often busy)
     const findVitePort = async (): Promise<number> => {
-      // Check 5181 first (Vite often uses this when 5180 is busy), then 5180, then others
       const ports = [5181, 5180, 5182, 5173]
       console.log(`🔍 Checking ports for Vite server: ${ports.join(', ')}`)
       for (const port of ports) {
@@ -218,24 +276,21 @@ export class WindowHelper {
           console.log(`  ❌ Port ${port} is not serving Vite`)
         }
       }
-      // Default to 5181 if none found (most likely port when 5180 is busy)
       console.warn(`⚠️ Vite server not found on any port, defaulting to 5181`)
       return 5181
     }
 
-    // Load URL after finding correct port
     const loadViteUrl = async () => {
       if (!this.mainWindow) return
       
-      // Add console message handlers to debug renderer errors
       this.mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
         console.log(`[Renderer ${level}]: ${message}`)
       })
       
       this.mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
         console.error(`❌ Failed to load ${validatedURL}: ${errorCode} - ${errorDescription}`)
-      })
-      
+    })
+
       this.mainWindow.webContents.on('did-frame-finish-load', (event, isMainFrame) => {
         if (isMainFrame) {
           console.log(`✅ Frame finished loading`)
@@ -250,7 +305,6 @@ export class WindowHelper {
         await this.mainWindow.loadURL(url)
         console.log(`✅ Successfully loaded URL: ${url}`)
         
-        // Wait a bit and check if content loaded
         setTimeout(() => {
           if (this.mainWindow && !this.mainWindow.isDestroyed()) {
             this.mainWindow.webContents.executeJavaScript(`
@@ -270,37 +324,37 @@ export class WindowHelper {
 
     loadViteUrl()
 
-        // Show window after loading URL and center it
-        this.mainWindow.once('ready-to-show', () => {
-          if (this.mainWindow) {
-            // Center the window first
-            this.centerWindow()
-            this.mainWindow.show()
-            this.mainWindow.focus()
-            this.mainWindow.setAlwaysOnTop(true)
-            this.isWindowVisible = true
-            console.log("Window is now visible and centered")
-            // Initial theme detection
-            this.debouncedDetectTheme()
-          }
-        })
-        
-        // Listen for window focus to potentially refresh token
-        this.mainWindow.on('focus', () => {
-          console.log("[WindowHelper] Window received focus")
-          // Small delay to ensure React is ready, then notify about focus
-          setTimeout(() => {
-            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-              this.mainWindow.webContents.send("window-focused")
-            }
-          }, 100)
-        })
+    this.mainWindow.once('ready-to-show', () => {
+      if (this.mainWindow) {
+        const savedState = this.stateManager.load()
+        if (!savedState) {
+        this.centerWindow()
+        }
+        this.mainWindow.show()
+        this.mainWindow.focus()
+        this.mainWindow.setAlwaysOnTop(true)
+        this.isWindowVisible = true
+        console.log("Window is now visible")
+        this.debouncedDetectTheme()
+      }
+    })
+    
+    this.mainWindow.on('focus', () => {
+      console.log("[WindowHelper] Window received focus")
+      setTimeout(() => {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.webContents.send("window-focused")
+        }
+      }, 100)
+    })
 
-    // Fallback: show window after 2 seconds even if ready-to-show didn't fire
     setTimeout(() => {
       if (this.mainWindow && !this.isWindowVisible) {
         console.log("Fallback: showing window after timeout")
-        this.centerWindow()
+        const savedState = this.stateManager.load()
+        if (!savedState) {
+          this.centerWindow()
+        }
         this.mainWindow.show()
         this.mainWindow.focus()
         this.isWindowVisible = true
@@ -327,18 +381,24 @@ export class WindowHelper {
         this.currentX = bounds.x
         this.currentY = bounds.y
         this.debouncedDetectTheme()
+        this.debouncedSaveState()
       }
     })
 
     this.mainWindow.on("resize", () => {
       if (this.mainWindow) {
         const bounds = this.mainWindow.getBounds()
+        this.windowPosition = { x: bounds.x, y: bounds.y }
         this.windowSize = { width: bounds.width, height: bounds.height }
+        this.currentX = bounds.x
+        this.currentY = bounds.y
         this.debouncedDetectTheme()
+        this.debouncedSaveState()
       }
     })
 
     this.mainWindow.on("closed", () => {
+      this.saveWindowState()
       this.mainWindow = null
       this.isWindowVisible = false
       this.windowPosition = null
@@ -346,7 +406,26 @@ export class WindowHelper {
     })
   }
 
-  // --- Theme detection based on background brightness ---
+  private debouncedSaveState(): void {
+    if (this.saveStateDebounceTimer) {
+      clearTimeout(this.saveStateDebounceTimer)
+    }
+    this.saveStateDebounceTimer = setTimeout(() => {
+      this.saveWindowState()
+    }, 500)
+  }
+
+  private saveWindowState(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    const bounds = this.mainWindow.getBounds()
+    this.stateManager.save({
+      width: bounds.width,
+      height: bounds.height,
+      x: bounds.x ?? 0,
+      y: bounds.y ?? 0
+    })
+  }
+
   private themeDetectionTimer: NodeJS.Timeout | null = null
   private themeDetecting: boolean = false
   private debouncedDetectTheme(): void {
@@ -366,13 +445,9 @@ export class WindowHelper {
 
       const strip = 24
       const rects = [
-        // top strip above window
         { left: bounds.x, top: Math.max(bounds.y - strip, 0), width: bounds.width, height: Math.min(strip, bounds.y) },
-        // bottom strip below window
         { left: bounds.x, top: Math.min(bounds.y + bounds.height, imgHeight - strip), width: bounds.width, height: Math.min(strip, imgHeight - (bounds.y + bounds.height)) },
-        // left strip
         { left: Math.max(bounds.x - strip, 0), top: bounds.y, width: Math.min(strip, bounds.x), height: bounds.height },
-        // right strip
         { left: Math.min(bounds.x + bounds.width, imgWidth - strip), top: bounds.y, width: Math.min(strip, imgWidth - (bounds.x + bounds.width)), height: bounds.height }
       ].filter(r => r.width > 8 && r.height > 8)
 
@@ -454,16 +529,13 @@ export class WindowHelper {
     const primaryDisplay = screen.getPrimaryDisplay()
     const workArea = primaryDisplay.workAreaSize
     
-    // Get current window size or use defaults
     const windowBounds = this.mainWindow.getBounds()
     const windowWidth = windowBounds.width || 400
     const windowHeight = windowBounds.height || 600
     
-    // Calculate center position
     const centerX = Math.floor((workArea.width - windowWidth) / 2)
     const centerY = Math.floor((workArea.height - windowHeight) / 2)
     
-    // Set window position
     this.mainWindow.setBounds({
       x: centerX,
       y: centerY,
@@ -471,7 +543,6 @@ export class WindowHelper {
       height: windowHeight
     })
     
-    // Update internal state
     this.windowPosition = { x: centerX, y: centerY }
     this.windowSize = { width: windowWidth, height: windowHeight }
     this.currentX = centerX
@@ -493,14 +564,12 @@ export class WindowHelper {
     console.log(`Window centered and shown`)
   }
 
-  // New methods for window movement
   public moveWindowRight(): void {
     if (!this.mainWindow) return
 
     const windowWidth = this.windowSize?.width || 0
     const halfWidth = windowWidth / 2
 
-    // Ensure currentX and currentY are numbers
     this.currentX = Number(this.currentX) || 0
     this.currentY = Number(this.currentY) || 0
 
@@ -520,7 +589,6 @@ export class WindowHelper {
     const windowWidth = this.windowSize?.width || 0
     const halfWidth = windowWidth / 2
 
-    // Ensure currentX and currentY are numbers
     this.currentX = Number(this.currentX) || 0
     this.currentY = Number(this.currentY) || 0
 
@@ -537,7 +605,6 @@ export class WindowHelper {
     const windowHeight = this.windowSize?.height || 0
     const halfHeight = windowHeight / 2
 
-    // Ensure currentX and currentY are numbers
     this.currentX = Number(this.currentX) || 0
     this.currentY = Number(this.currentY) || 0
 
@@ -557,7 +624,6 @@ export class WindowHelper {
     const windowHeight = this.windowSize?.height || 0
     const halfHeight = windowHeight / 2
 
-    // Ensure currentX and currentY are numbers
     this.currentX = Number(this.currentX) || 0
     this.currentY = Number(this.currentY) || 0
 
