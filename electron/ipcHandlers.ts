@@ -1,9 +1,13 @@
 // ipcHandlers.ts
 
-import { ipcMain, app } from "electron"
+import { ipcMain, app, shell, BrowserWindow } from "electron"
 import { AppState } from "./main"
+import { TokenManager } from "./TokenManager"
 
 export function initializeIpcHandlers(appState: AppState): void {
+  const tokenManager = new TokenManager()
+  tokenManager.load()
+
   ipcMain.handle(
     "update-content-dimensions",
     async (event, { width, height }: { width: number; height: number }) => {
@@ -26,6 +30,66 @@ export function initializeIpcHandlers(appState: AppState): void {
       console.error("Error taking screenshot:", error)
       throw error
     }
+  })
+
+  // Auth/token IPC
+  ipcMain.handle("get-token", async () => {
+    const token = tokenManager.load()
+    console.log("[IPC] get-token:", token ? "token exists" : "no token")
+    return token
+  })
+
+  ipcMain.handle("set-token", async (event, token: string) => {
+    if (!token || typeof token !== "string") {
+      console.error("[IPC] set-token: invalid token provided")
+      return { success: false, error: "Invalid token" }
+    }
+    try {
+      tokenManager.save(token)
+      console.log("[IPC] set-token: token saved successfully")
+      
+      // Notify renderer process that token was updated
+      const mainWindow = appState.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        // Send event immediately
+        mainWindow.webContents.send("token-updated", token)
+        console.log("[IPC] Sent token-updated event to renderer process")
+        // Also send again after a short delay to ensure it's received
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("token-updated", token)
+            console.log("[IPC] Sent token-updated event again (retry)")
+          }
+        }, 500)
+      } else {
+        console.warn("[IPC] Main window not available, cannot send token-updated event")
+      }
+      
+      return { success: true }
+    } catch (error: any) {
+      console.error("[IPC] set-token error:", error)
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle("clear-token", async () => {
+    tokenManager.clear()
+    console.log("[IPC] clear-token: token cleared")
+    return { success: true }
+  })
+
+  ipcMain.handle("logout", async () => {
+    tokenManager.clear()
+    console.log("[IPC] logout: token cleared")
+    return { success: true }
+  })
+
+  ipcMain.handle("open-auth", async () => {
+    const siteUrl = process.env.SITE_URL || "http://localhost:3005"
+    const scheme = process.env.DEEPLINK_SCHEME || "cluely"
+    const url = `${siteUrl}/auth?redirect=${encodeURIComponent(`${scheme}://auth`)}`
+    await shell.openExternal(url)
+    return { success: true }
   })
 
   ipcMain.handle("get-screenshots", async () => {
@@ -71,9 +135,9 @@ export function initializeIpcHandlers(appState: AppState): void {
   })
 
   // IPC handler for analyzing audio from base64 data
-  ipcMain.handle("analyze-audio-base64", async (event, data: string, mimeType: string) => {
+  ipcMain.handle("analyze-audio-base64", async (event, data: string, mimeType: string, chatHistory?: string) => {
     try {
-      const result = await appState.processingHelper.processAudioBase64(data, mimeType)
+      const result = await appState.processingHelper.processAudioBase64(data, mimeType, chatHistory)
       return result
     } catch (error: any) {
       console.error("Error in analyze-audio-base64 handler:", error)

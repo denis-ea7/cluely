@@ -2,6 +2,7 @@
 
 import { AppState } from "./main"
 import { LLMHelper } from "./LLMHelper"
+import { KeyClient, KeysResponse } from "./KeyClient"
 import dotenv from "dotenv"
 
 dotenv.config()
@@ -12,46 +13,112 @@ const MOCK_API_WAIT_TIME = Number(process.env.MOCK_API_WAIT_TIME) || 500
 
 export class ProcessingHelper {
   private appState: AppState
-  private llmHelper: LLMHelper
+  private llmHelper: LLMHelper | null = null
   private currentProcessingAbortController: AbortController | null = null
   private currentExtraProcessingAbortController: AbortController | null = null
 
   constructor(appState: AppState) {
     this.appState = appState
-    
-    // Check if user wants to use Ollama
+  }
+
+  public async initialize(): Promise<void> {
+    // Prefer centralized key-agent if provided
+    const keyAgentUrl = process.env.KEY_AGENT_URL
+    const clientToken = process.env.KEY_AGENT_CLIENT_TOKEN
     const useOllama = process.env.USE_OLLAMA === "true"
     const ollamaModel = process.env.OLLAMA_MODEL // Don't set default here, let LLMHelper auto-detect
     const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434"
-    
-    if (useOllama) {
-      console.log("[ProcessingHelper] Initializing with Ollama")
-      this.llmHelper = new LLMHelper(undefined, true, ollamaModel, ollamaUrl)
+
+    const initFromKeys = (keys: KeysResponse) => {
+      if (!keys) {
+        throw new Error("Keys are required. Must be fetched from key-agent backend.")
+      }
+
+      if (useOllama) {
+        console.log("[ProcessingHelper] Initializing with Ollama")
+        if (!keys.primary) {
+          throw new Error("Primary AI keys are required from backend")
+        }
+        this.llmHelper = new LLMHelper(undefined, true, ollamaModel, ollamaUrl, keys.primary)
+        return
+      }
+
+      // Gather Gemini keys from key-agent only
+      const list: string[] = []
+      if (keys?.gemini?.apiKeys?.length) {
+        list.push(...keys.gemini.apiKeys)
+      }
+      if (list.length === 0) {
+        throw new Error("Gemini API key(s) not found from key-agent. Backend must provide GEMINI_API_KEYS or enable USE_OLLAMA=true")
+      }
+      
+      if (!keys.primary) {
+        throw new Error("Primary AI keys are required from backend")
+      }
+      
+      console.log(`[ProcessingHelper] Initializing with Gemini (keys: ${list.length}) + Primary from backend`)
+      this.llmHelper = new LLMHelper(list, false, undefined, undefined, keys.primary)
+    }
+
+    // If KEY_AGENT_URL is set, keys MUST come from backend (no env fallback)
+    if (keyAgentUrl) {
+      const kc = new KeyClient(keyAgentUrl, clientToken)
+      try {
+        const fetched = await kc.getKeys(false)
+        if (!fetched) {
+          throw new Error("Key-agent returned empty response")
+        }
+        initFromKeys(fetched)
+        console.log("[ProcessingHelper] Initialized with keys from key-agent backend")
+      } catch (e) {
+        const errMsg = (e as any)?.message || String(e)
+        console.error("[ProcessingHelper] CRITICAL: Failed to fetch keys from key-agent:", errMsg)
+        throw new Error(`Cannot start without keys from backend: ${errMsg}`)
+      }
     } else {
-      // Gather Gemini API keys with support for multiple keys/rotation
+      // Development mode: allow env variables (but still no hardcoded defaults)
+      // This is for local dev only - production must use KEY_AGENT_URL
+      console.warn("[ProcessingHelper] WARNING: KEY_AGENT_URL not set. Using env variables (dev mode only).")
+      const envPrimary = process.env.PRIMARY_TOKEN && process.env.PRIMARY_WS_URL && process.env.PRIMARY_CHAT_URL && process.env.PRIMARY_MODEL
+        ? {
+            token: process.env.PRIMARY_TOKEN,
+            wsUrl: process.env.PRIMARY_WS_URL,
+            chatUrl: process.env.PRIMARY_CHAT_URL,
+            model: process.env.PRIMARY_MODEL
+          }
+        : null
+
+      if (useOllama) {
+        if (!envPrimary) {
+          throw new Error("In dev mode: PRIMARY_TOKEN, PRIMARY_WS_URL, PRIMARY_CHAT_URL, PRIMARY_MODEL env vars required, or set KEY_AGENT_URL to use backend")
+        }
+        this.llmHelper = new LLMHelper(undefined, true, ollamaModel, ollamaUrl, envPrimary)
+        return
+      }
+
       const envKeys: string[] = []
       const listFromCombined = (process.env.GEMINI_API_KEYS || "")
         .split(/[,\s]+/)
         .map(k => k.trim())
         .filter(k => !!k)
       envKeys.push(...listFromCombined)
-      // Backward compatibility: GEMINI_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2, ...
       const direct = process.env.GEMINI_API_KEY
       if (direct) envKeys.push(direct)
       for (let i = 1; i <= 10; i++) {
         const v = process.env[`GEMINI_API_KEY_${i}`]
         if (v) envKeys.push(v)
       }
-
-      // De-duplicate while preserving order
       const seen = new Set<string>()
-      const keys = envKeys.filter(k => (seen.has(k) ? false : (seen.add(k), true)))
+      const list = envKeys.filter(k => (seen.has(k) ? false : (seen.add(k), true)))
 
-      if (keys.length === 0) {
-        throw new Error("Gemini API key(s) not found. Provide GEMINI_API_KEY or GEMINI_API_KEYS or GEMINI_API_KEY_1,2,... or enable Ollama with USE_OLLAMA=true")
+      if (list.length === 0) {
+        throw new Error("In dev mode: GEMINI_API_KEY(S) env vars required, or set KEY_AGENT_URL to use backend")
       }
-      console.log(`[ProcessingHelper] Initializing with Gemini (keys: ${keys.length})`)
-      this.llmHelper = new LLMHelper(keys, false)
+      if (!envPrimary) {
+        throw new Error("In dev mode: PRIMARY_TOKEN, PRIMARY_WS_URL, PRIMARY_CHAT_URL, PRIMARY_MODEL env vars required, or set KEY_AGENT_URL to use backend")
+      }
+      console.log(`[ProcessingHelper] Dev mode: Using env vars (Gemini: ${list.length} keys)`)
+      this.llmHelper = new LLMHelper(list, false, undefined, undefined, envPrimary)
     }
   }
 
@@ -172,9 +239,9 @@ export class ProcessingHelper {
     this.appState.setHasDebugged(false)
   }
 
-  public async processAudioBase64(data: string, mimeType: string) {
+  public async processAudioBase64(data: string, mimeType: string, chatHistory?: string) {
     // Directly use LLMHelper to analyze inline base64 audio
-    return this.llmHelper.analyzeAudioFromBase64(data, mimeType);
+    return this.llmHelper.analyzeAudioFromBase64(data, mimeType, chatHistory);
   }
 
   // Add audio file processing method
@@ -182,7 +249,10 @@ export class ProcessingHelper {
     return this.llmHelper.analyzeAudioFile(filePath);
   }
 
-  public getLLMHelper() {
+  public getLLMHelper(): LLMHelper {
+    if (!this.llmHelper) {
+      throw new Error("ProcessingHelper not initialized. Call initialize() first.")
+    }
     return this.llmHelper;
   }
 }

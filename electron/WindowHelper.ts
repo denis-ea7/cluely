@@ -4,12 +4,21 @@ import screenshot from "screenshot-desktop"
 import sharp from "sharp"
 import { AppState } from "main"
 import path from "node:path"
+import http from "http"
 
 const isDev = process.env.NODE_ENV === "development"
 
-const startUrl = isDev
-  ? "http://localhost:5180"
-  : `file://${path.join(__dirname, "../dist/index.html")}`
+// Try multiple ports in dev mode (Vite may use different port if 5180 is busy)
+const getStartUrl = () => {
+  if (isDev) {
+    // Check if VITE_PORT is set, otherwise try common ports
+    const vitePort = process.env.VITE_PORT || "5180"
+    return `http://localhost:${vitePort}`
+  }
+  return `file://${path.join(__dirname, "../dist/index.html")}`
+}
+
+const startUrl = getStartUrl()
 
 export class WindowHelper {
   private mainWindow: BrowserWindow | null = null
@@ -75,32 +84,44 @@ export class WindowHelper {
     this.screenHeight = workArea.height
 
     
+    // In dev mode, allow frame for debugging if DEBUG_WINDOW env var is set
+    const useFrame = process.env.DEBUG_WINDOW === "true"
+    
     const windowSettings: Electron.BrowserWindowConstructorOptions = {
-      width: 400,
-      height: 600,
-      minWidth: 300,
-      minHeight: 200,
+      width: 600, // Increased from 400 to 600 for better visibility
+      height: 700, // Increased from 600 to 700
+      minWidth: 400, // Increased from 300
+      minHeight: 300, // Increased from 200
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
-        preload: path.join(__dirname, "preload.js")
+        preload: path.join(__dirname, "preload.js"),
+        devTools: isDev // Allow DevTools in dev mode, but don't open automatically
       },
       show: false, // Start hidden, then show after setup
       alwaysOnTop: true,
-      frame: false,
-      transparent: true,
+      frame: useFrame, // Only show frame if DEBUG_WINDOW=true
+      transparent: !useFrame, // Transparent unless debugging
       fullscreenable: false,
-      hasShadow: false,
-      backgroundColor: "#00000000",
+      hasShadow: !useFrame,
+      backgroundColor: "#00000000", // Always transparent background
       focusable: true,
       resizable: true,
       movable: true,
-      x: 100, // Start at a visible position
-      y: 100
+      x: Math.floor(workArea.width / 2 - 300), // Center horizontally (half of 600px width)
+      y: Math.floor(workArea.height / 2 - 350) // Center vertically (half of 700px height)
     }
 
     this.mainWindow = new BrowserWindow(windowSettings)
-    // this.mainWindow.webContents.openDevTools()
+    // Only open DevTools if explicitly requested via env var
+    // Note: DEBUG_WINDOW=true enables frame and transparency, but doesn't auto-open DevTools
+    // Use AUTO_OPEN_DEVTOOLS=true to automatically open DevTools
+    if (process.env.AUTO_OPEN_DEVTOOLS === "true") {
+      console.log("[WindowHelper] Opening DevTools (AUTO_OPEN_DEVTOOLS is set)")
+      this.mainWindow.webContents.openDevTools()
+    } else {
+      console.log("[WindowHelper] DevTools available but not auto-opening (set AUTO_OPEN_DEVTOOLS=true to enable)")
+    }
     this.mainWindow.setContentProtection(true)
 
     if (process.platform === "darwin") {
@@ -121,23 +142,170 @@ export class WindowHelper {
     this.mainWindow.setSkipTaskbar(true)
     this.mainWindow.setAlwaysOnTop(true)
 
-    this.mainWindow.loadURL(startUrl).catch((err) => {
-      console.error("Failed to load URL:", err)
-    })
+    // Check if a port is serving Vite by making HTTP request and checking response
+    const checkVitePort = (port: number): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const req = http.get(`http://localhost:${port}`, { timeout: 2000 }, (res) => {
+          // Check status code first - must be 200
+          if (res.statusCode !== 200) {
+            res.resume() // Consume response to free up memory
+            resolve(false)
+            return
+          }
 
-    // Show window after loading URL and center it
-    this.mainWindow.once('ready-to-show', () => {
-      if (this.mainWindow) {
-        // Center the window first
+          // Check content-type - must be HTML
+          const contentType = res.headers['content-type'] || ''
+          if (!contentType.includes('text/html') && !contentType.includes('text/html;')) {
+            res.resume()
+            resolve(false)
+            return
+          }
+
+          let data = ''
+          let resolved = false
+          
+          res.on('data', (chunk) => {
+            if (resolved) return
+            data += chunk.toString()
+            
+            // Check if response contains HTML structure (Vite serves HTML)
+            if (data.length > 200) {
+              const hasHtml = data.includes('<!DOCTYPE html') || 
+                             data.includes('<html') ||
+                             data.includes('<head') ||
+                             data.includes('vite') ||
+                             data.includes('Vite')
+              
+              if (hasHtml) {
+                resolved = true
+                req.destroy()
+                resolve(true)
+                return
+              }
+            }
+          })
+          
+          res.on('end', () => {
+            if (resolved) return
+            // Final check - must have HTML content
+            const hasHtml = data.includes('<!DOCTYPE html') || 
+                          data.includes('<html') ||
+                          data.includes('<head')
+            resolve(hasHtml && data.length > 100)
+          })
+        })
+        
+        req.on('error', () => resolve(false))
+        req.on('timeout', () => {
+          req.destroy()
+          resolve(false)
+        })
+      })
+    }
+
+    // Find available Vite port by checking ports in order (5181 first since 5180 is often busy)
+    const findVitePort = async (): Promise<number> => {
+      // Check 5181 first (Vite often uses this when 5180 is busy), then 5180, then others
+      const ports = [5181, 5180, 5182, 5173]
+      console.log(`🔍 Checking ports for Vite server: ${ports.join(', ')}`)
+      for (const port of ports) {
+        console.log(`  Checking port ${port}...`)
+        const isVite = await checkVitePort(port)
+        if (isVite) {
+          console.log(`✅ Found Vite server on port ${port}`)
+          return port
+        } else {
+          console.log(`  ❌ Port ${port} is not serving Vite`)
+        }
+      }
+      // Default to 5181 if none found (most likely port when 5180 is busy)
+      console.warn(`⚠️ Vite server not found on any port, defaulting to 5181`)
+      return 5181
+    }
+
+    // Load URL after finding correct port
+    const loadViteUrl = async () => {
+      if (!this.mainWindow) return
+      
+      // Add console message handlers to debug renderer errors
+      this.mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        console.log(`[Renderer ${level}]: ${message}`)
+      })
+      
+      this.mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+        console.error(`❌ Failed to load ${validatedURL}: ${errorCode} - ${errorDescription}`)
+      })
+      
+      this.mainWindow.webContents.on('did-frame-finish-load', (event, isMainFrame) => {
+        if (isMainFrame) {
+          console.log(`✅ Frame finished loading`)
+        }
+      })
+      
+      try {
+        const port = await findVitePort()
+        const url = `http://localhost:${port}`
+        console.log(`🌐 Loading URL: ${url}`)
+        
+        await this.mainWindow.loadURL(url)
+        console.log(`✅ Successfully loaded URL: ${url}`)
+        
+        // Wait a bit and check if content loaded
+        setTimeout(() => {
+          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            this.mainWindow.webContents.executeJavaScript(`
+              console.log('Window content check:', {
+                body: document.body ? 'exists' : 'missing',
+                bodyChildren: document.body ? document.body.children.length : 0,
+                title: document.title,
+                readyState: document.readyState
+              })
+            `).catch(console.error)
+          }
+        }, 1000)
+      } catch (err) {
+        console.error("❌ Error loading URL:", err)
+      }
+    }
+
+    loadViteUrl()
+
+        // Show window after loading URL and center it
+        this.mainWindow.once('ready-to-show', () => {
+          if (this.mainWindow) {
+            // Center the window first
+            this.centerWindow()
+            this.mainWindow.show()
+            this.mainWindow.focus()
+            this.mainWindow.setAlwaysOnTop(true)
+            this.isWindowVisible = true
+            console.log("Window is now visible and centered")
+            // Initial theme detection
+            this.debouncedDetectTheme()
+          }
+        })
+        
+        // Listen for window focus to potentially refresh token
+        this.mainWindow.on('focus', () => {
+          console.log("[WindowHelper] Window received focus")
+          // Small delay to ensure React is ready, then notify about focus
+          setTimeout(() => {
+            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+              this.mainWindow.webContents.send("window-focused")
+            }
+          }, 100)
+        })
+
+    // Fallback: show window after 2 seconds even if ready-to-show didn't fire
+    setTimeout(() => {
+      if (this.mainWindow && !this.isWindowVisible) {
+        console.log("Fallback: showing window after timeout")
         this.centerWindow()
         this.mainWindow.show()
         this.mainWindow.focus()
-        this.mainWindow.setAlwaysOnTop(true)
-        console.log("Window is now visible and centered")
-        // Initial theme detection
-        this.debouncedDetectTheme()
+        this.isWindowVisible = true
       }
-    })
+    }, 2000)
 
     const bounds = this.mainWindow.getBounds()
     this.windowPosition = { x: bounds.x, y: bounds.y }

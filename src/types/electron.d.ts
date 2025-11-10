@@ -22,11 +22,11 @@ export interface ElectronAPI {
   moveWindowRight: () => Promise<void>
   moveWindowUp: () => Promise<void>
   moveWindowDown: () => Promise<void>
-  analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
+  analyzeAudioFromBase64: (data: string, mimeType: string, chatHistory?: string) => Promise<{ text: string; timestamp: number; isResponse?: boolean; transcript?: string }>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   quitApp: () => Promise<void>
   invoke: (channel: string, ...args: any[]) => Promise<any>
-  onThemeChange: (callback: (theme: "light" | "dark") => void) => () => void
+  onThemeChange: (callback: (theme: "dark" | "dark") => void) => () => void
 }
 
 declare global {
