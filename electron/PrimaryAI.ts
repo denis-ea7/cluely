@@ -67,7 +67,6 @@ export class PrimaryAI {
                   full += delta
                 }
               } catch {
-                // ignore bad chunks
               }
             }
           })
@@ -81,7 +80,6 @@ export class PrimaryAI {
     })
   }
 
-  // Transcribe a local WAV file with PCM16 LE, 16kHz
   public async transcribeWavPcm16File(filePath: string): Promise<string> {
     if (!fs.existsSync(filePath)) {
       throw new Error("File not found: " + filePath)
@@ -127,7 +125,6 @@ export class PrimaryAI {
     })
   }
 
-  // Send raw PCM16 LE, mono, 16kHz to WS and collect last interim text
   public async transcribePcm16Buffer(pcm: Buffer, sampleRateHertz = 16000): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       let lastText = ""
@@ -158,9 +155,7 @@ export class PrimaryAI {
             sampleRateHertz
           })
         )
-        // send the entire buffer as one chunk
         ws.send(pcm)
-        // small grace period then finish
         setTimeout(finish, 600)
       })
       ws.on("message", (data: WebSocket.Data) => {
@@ -170,7 +165,6 @@ export class PrimaryAI {
             lastText = msg.text
           }
         } catch {
-          // ignore raw
         }
       })
       ws.on("error", (e: Error) => {
@@ -181,10 +175,74 @@ export class PrimaryAI {
         finish()
       })
       setTimeout(() => {
-        // safety timeout
         finish()
       }, 15000)
     })
+  }
+
+  // Стриминг транскрипции в реальном времени (как в del2.js)
+  public createTranscriptionStream(
+    onInterim: (text: string) => void,
+    onError?: (error: Error) => void
+  ): {
+    ws: WebSocket
+    sendChunk: (pcmChunk: Buffer) => void
+    close: () => void
+  } {
+    const ws = new WebSocket(this.wsUrl, {
+      headers: { Authorization: `Bearer ${this.token}` }
+    })
+    let isOpen = false
+    let pendingChunks: Buffer[] = []
+
+    ws.on("open", () => {
+      isOpen = true
+      ws.send(
+        JSON.stringify({
+          type: "start",
+          intent: "transcription",
+          language: this.language,
+          encoding: "LINEAR16",
+          sampleRateHertz: 16000
+        })
+      )
+      // Отправляем накопленные чанки
+      for (const chunk of pendingChunks) {
+        ws.send(chunk)
+      }
+      pendingChunks = []
+    })
+
+    ws.on("message", (data: WebSocket.Data) => {
+      try {
+        const msg = JSON.parse(data.toString())
+        if (msg?.type === "interim" && msg?.text) {
+          onInterim(msg.text)
+        }
+      } catch {
+        // ignore
+      }
+    })
+
+    ws.on("error", (e: Error) => {
+      if (onError) onError(e)
+    })
+
+    const sendChunk = (pcmChunk: Buffer) => {
+      if (isOpen && ws.readyState === WebSocket.OPEN) {
+        ws.send(pcmChunk)
+      } else {
+        pendingChunks.push(pcmChunk)
+      }
+    }
+
+    const close = () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close(1000, "done")
+      }
+    }
+
+    return { ws, sendChunk, close }
   }
 }
 

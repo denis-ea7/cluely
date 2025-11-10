@@ -17,9 +17,10 @@ import ModelSelector from "../components/ui/ModelSelector"
 
 interface QueueProps {
   setView: React.Dispatch<React.SetStateAction<"queue" | "solutions" | "debug">>
+  onTranscriptUpdate?: (entry: { speaker: "user" | "assistant"; text: string }) => void
 }
 
-const Queue: React.FC<QueueProps> = ({ setView }) => {
+const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
   const [toastOpen, setToastOpen] = useState(false)
   const [toastMessage, setToastMessage] = useState<ToastMessage>({
     title: "",
@@ -92,62 +93,27 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
 
   const handleChatSend = async () => {
     if (!chatInput.trim()) return
-    setChatMessages((msgs) => [...msgs, { role: "user", text: chatInput }])
+    const message = chatInput
+    setChatMessages((msgs) => [...msgs, { role: "user", text: message }])
+    onTranscriptUpdate?.({ speaker: "user", text: message })
     setChatLoading(true)
     setChatInput("")
     try {
       const history = chatMessages
-        .concat([{ role: 'user', text: chatInput }])
-        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
-        .join('\n')
+        .concat([{ role: "user", text: message }])
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`)
+        .join("\n")
       const prompt = history
         ? `Контекст диалога:\n${history}\n\nОтветь на последний запрос пользователя, учитывая контекст.`
-        : chatInput
+        : message
       const response = await window.electronAPI.invoke("gemini-chat", prompt)
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: response }])
+      onTranscriptUpdate?.({ speaker: "assistant", text: response })
     } catch (err) {
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(err) }])
     } finally {
       setChatLoading(false)
       chatInputRef.current?.focus()
-    }
-  }
-
-  const handleAudioTranscript = async (data: { text: string; isResponse: boolean; transcript?: string }) => {
-    if (!data?.text?.trim()) return
-    
-    if (data.isResponse) {
-      // Direct response from Gemini (audio was sent with context)
-      // Add user question (transcript) and response
-      setChatMessages((msgs) => {
-        const newMsgs = [...msgs]
-        // Add user question if we have transcript
-        if (data.transcript?.trim()) {
-          newMsgs.push({ role: 'user', text: data.transcript })
-        }
-        // Add Gemini response
-        newMsgs.push({ role: 'gemini', text: data.text })
-        return newMsgs
-      })
-      setChatLoading(false)
-    } else {
-      // Just transcript, need to get response
-      const transcript = data.text
-      setChatMessages((msgs) => [...msgs, { role: 'user', text: transcript }])
-      setChatLoading(true)
-      try {
-        const history = chatMessages
-          .concat([{ role: 'user', text: transcript }])
-          .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
-          .join('\n')
-        const prompt = `Контекст диалога:\n${history}\n\nОтветь на последний запрос пользователя, учитывая контекст.`
-        const response = await window.electronAPI.invoke('gemini-chat', prompt)
-        setChatMessages((msgs) => [...msgs, { role: 'gemini', text: response }])
-      } catch (err) {
-        setChatMessages((msgs) => [...msgs, { role: 'gemini', text: 'Error: ' + String(err) }])
-      } finally {
-        setChatLoading(false)
-      }
     }
   }
 
@@ -291,8 +257,6 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
               onTooltipVisibilityChange={handleTooltipVisibilityChange}
               onChatToggle={handleChatToggle}
               onSettingsToggle={handleSettingsToggle}
-              onAudioTranscript={handleAudioTranscript}
-              chatHistory={chatMessages.length > 0 ? chatMessages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join('\n') : undefined}
             />
             {/* Settings */}
             {isSettingsOpen && (

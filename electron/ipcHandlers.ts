@@ -1,8 +1,10 @@
-// ipcHandlers.ts
 
 import { ipcMain, app, shell, BrowserWindow } from "electron"
 import { AppState } from "./main"
 import { TokenManager } from "./TokenManager"
+
+// Глобальное хранилище активных стримов транскрипции (по webContents.id)
+const activeTranscriptionStreams = new Map<number, { sendChunk: (pcmChunk: Buffer) => void; close: () => void }>()
 
 export function initializeIpcHandlers(appState: AppState): void {
   const tokenManager = new TokenManager()
@@ -13,6 +15,15 @@ export function initializeIpcHandlers(appState: AppState): void {
     async (event, { width, height }: { width: number; height: number }) => {
       if (width && height) {
         appState.setWindowDimensions(width, height)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    "ensure-window-size",
+    async (event, { width, height }: { width: number; height: number }) => {
+      if (width && height) {
+        appState.ensureWindowSize(width, height)
       }
     }
   )
@@ -32,7 +43,6 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // Auth/token IPC
   ipcMain.handle("get-token", async () => {
     const token = tokenManager.load()
     console.log("[IPC] get-token:", token ? "token exists" : "no token")
@@ -48,13 +58,10 @@ export function initializeIpcHandlers(appState: AppState): void {
       tokenManager.save(token)
       console.log("[IPC] set-token: token saved successfully")
       
-      // Notify renderer process that token was updated
       const mainWindow = appState.getMainWindow()
       if (mainWindow && !mainWindow.isDestroyed()) {
-        // Send event immediately
         mainWindow.webContents.send("token-updated", token)
         console.log("[IPC] Sent token-updated event to renderer process")
-        // Also send again after a short delay to ensure it's received
         setTimeout(() => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send("token-updated", token)
@@ -88,8 +95,57 @@ export function initializeIpcHandlers(appState: AppState): void {
     const siteUrl = process.env.SITE_URL || "http://localhost:3005"
     const scheme = process.env.DEEPLINK_SCHEME || "cluely"
     const url = `${siteUrl}/auth?redirect=${encodeURIComponent(`${scheme}://auth`)}`
+    
+    const mainWindow = appState.getMainWindow()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      console.log("[IPC] Minimizing window before opening auth page")
+      mainWindow.minimize()
+      if (process.platform === "darwin") {
+        app.dock?.hide()
+      }
+    }
+    
     await shell.openExternal(url)
     return { success: true }
+  })
+
+  ipcMain.handle("get-premium-info", async () => {
+    try {
+      const premiumInfo = appState.premiumManager.getPremiumInfo()
+      return premiumInfo || { isPremium: false, premiumUntil: null, timeRemaining: null }
+    } catch (e: any) {
+      console.error("[IPC] Error getting premium info:", e)
+      return { isPremium: false, premiumUntil: null, timeRemaining: null }
+    }
+  })
+
+  ipcMain.handle("can-use-app", async () => {
+    try {
+      return appState.premiumManager.canUseApp()
+    } catch (e: any) {
+      console.error("[IPC] Error checking if can use app:", e)
+      return false
+    }
+  })
+
+  ipcMain.handle("open-premium-purchase", async () => {
+    const purchaseUrl = process.env.PREMIUM_PURCHASE_URL || "http://109.61.108.37:3005/#pricing"
+    await shell.openExternal(purchaseUrl)
+    return { success: true }
+  })
+
+  ipcMain.handle("refresh-premium-info", async () => {
+    try {
+      const premiumInfo = await appState.premiumManager.refreshPremiumInfo()
+      const mainWindow = appState.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("premium-status-updated", premiumInfo)
+      }
+      return premiumInfo
+    } catch (e: any) {
+      console.error("[IPC] Error refreshing premium info:", e)
+      return { isPremium: false, premiumUntil: null, timeRemaining: null }
+    }
   })
 
   ipcMain.handle("get-screenshots", async () => {
@@ -134,7 +190,6 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // IPC handler for analyzing audio from base64 data
   ipcMain.handle("analyze-audio-base64", async (event, data: string, mimeType: string, chatHistory?: string) => {
     try {
       const result = await appState.processingHelper.processAudioBase64(data, mimeType, chatHistory)
@@ -145,7 +200,95 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // IPC handler for analyzing audio from file path
+  ipcMain.handle("transcribe-pcm16", async (_event, base64: string, sampleRate?: number) => {
+    try {
+      const helper = appState.processingHelper.getLLMHelper()
+      const result = await helper.transcribePcm16Base64(base64, sampleRate || 16000)
+      return result
+    } catch (error: any) {
+      console.error("Error in transcribe-pcm16 handler:", error)
+      throw error
+    }
+  })
+
+  // Стриминг транскрипции в реальном времени (как в del2.js)
+  ipcMain.handle("start-transcription-stream", async (event) => {
+    try {
+      const webContentsId = event.sender.id
+      // Закрываем предыдущий стрим если есть
+      const existing = activeTranscriptionStreams.get(webContentsId)
+      if (existing) {
+        existing.close()
+        activeTranscriptionStreams.delete(webContentsId)
+      }
+
+      const helper = appState.processingHelper.getLLMHelper()
+      const primary = (helper as any).primary
+      if (!primary) {
+        throw new Error("PrimaryAI not configured")
+      }
+
+      const stream = primary.createTranscriptionStream(
+        (text: string) => {
+          // Отправляем interim текст в renderer
+          event.sender.send("transcription-interim", { text })
+        },
+        (error: Error) => {
+          event.sender.send("transcription-error", { error: error.message })
+          activeTranscriptionStreams.delete(webContentsId)
+        }
+      )
+
+      activeTranscriptionStreams.set(webContentsId, stream)
+      return { success: true }
+    } catch (error: any) {
+      console.error("Error starting transcription stream:", error)
+      throw error
+    }
+  })
+
+  ipcMain.handle("send-transcription-chunk", async (event, pcmBase64: string) => {
+    try {
+      const webContentsId = event.sender.id
+      const stream = activeTranscriptionStreams.get(webContentsId)
+      if (!stream) {
+        throw new Error("Transcription stream not started")
+      }
+      const pcmBuffer = Buffer.from(pcmBase64, "base64")
+      stream.sendChunk(pcmBuffer)
+      return { success: true }
+    } catch (error: any) {
+      console.error("Error sending transcription chunk:", error)
+      throw error
+    }
+  })
+
+  ipcMain.handle("stop-transcription-stream", async (event) => {
+    try {
+      const webContentsId = event.sender.id
+      const stream = activeTranscriptionStreams.get(webContentsId)
+      if (stream) {
+        stream.close()
+        activeTranscriptionStreams.delete(webContentsId)
+      }
+      return { success: true }
+    } catch (error: any) {
+      console.error("Error stopping transcription stream:", error)
+      throw error
+    }
+  })
+
+  // Очистка при закрытии окна
+  app.on("web-contents-created", (_event, webContents) => {
+    webContents.on("destroyed", () => {
+      const stream = activeTranscriptionStreams.get(webContents.id)
+      if (stream) {
+        stream.close()
+        activeTranscriptionStreams.delete(webContents.id)
+      }
+    })
+  })
+
   ipcMain.handle("analyze-audio-file", async (event, path: string) => {
     try {
       const result = await appState.processingHelper.processAudioFile(path)
@@ -156,7 +299,6 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // IPC handler for analyzing image from file path
   ipcMain.handle("analyze-image-file", async (event, path: string) => {
     try {
       const result = await appState.processingHelper.getLLMHelper().analyzeImageFile(path)
@@ -169,10 +311,20 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   ipcMain.handle("gemini-chat", async (event, message: string) => {
     try {
-      const result = await appState.processingHelper.getLLMHelper().chatWithGemini(message);
+      const result = await appState.processingHelper.getLLMHelper().chat(message);
       return result;
     } catch (error: any) {
       console.error("Error in gemini-chat handler:", error);
+      throw error;
+    }
+  });
+  // optional alias to generic chat
+  ipcMain.handle("chat", async (_event, message: string) => {
+    try {
+      const result = await appState.processingHelper.getLLMHelper().chat(message);
+      return result;
+    } catch (error: any) {
+      console.error("Error in chat handler:", error);
       throw error;
     }
   });
@@ -181,7 +333,6 @@ export function initializeIpcHandlers(appState: AppState): void {
     app.quit()
   })
 
-  // Window movement handlers
   ipcMain.handle("move-window-left", async () => {
     appState.moveWindowLeft()
   })
@@ -202,7 +353,6 @@ export function initializeIpcHandlers(appState: AppState): void {
     appState.centerAndShowWindow()
   })
 
-  // LLM Model Management Handlers
   ipcMain.handle("get-current-llm-config", async () => {
     try {
       const llmHelper = appState.processingHelper.getLLMHelper();

@@ -12,6 +12,9 @@ export class LLMHelper {
   private geminiKeys: string[] = []
   private keyIndex: number = -1
   private modelCache: Map<string, GenerativeModel> = new Map()
+  private audioModelCache: Map<string, GenerativeModel> = new Map()
+  private audioModelNames: string[] = ["gemini-1.5-flash", "gemini-1.5-flash-8b"]
+  private audioModelIndex: number = 0
   private primary: PrimaryAI | null = null
   private readonly systemPrompt = `Ты Wingman AI — полезный, проактивный помощник для любых задач (не только кодинг). Отвечай кратко и по делу. Если запрос подразумевает перечисление (напр. "какие типы данных в JavaScript"), верни только список пунктов, без вводных и пояснений. По умолчанию отвечай на русском языке. Если требуется вернуть JSON, строго следуй формату из запроса: ключи и структура — на английском, как в инструкции; значения-тексты — на русском. Если пользователь пишет на другом языке, всё равно отвечай на русском, пока явно не попросят иначе.`
   private useOllama: boolean = false
@@ -26,14 +29,12 @@ export class LLMHelper {
       this.ollamaModel = ollamaModel || "gemma:latest" // Default fallback
       console.log(`[LLMHelper] Using Ollama with model: ${this.ollamaModel}`)
       
-      // Auto-detect and use first available model if specified model doesn't exist
       this.initializeOllamaModel()
     } else if (apiKey) {
       this.geminiKeys = Array.isArray(apiKey) ? apiKey.filter(Boolean) : [apiKey]
       if (this.geminiKeys.length === 0) {
         throw new Error("No Gemini API keys provided")
       }
-      // Pre-create model for the first key
       const first = this.getNextGeminiModel(true)
       this.model = first
       console.log(`[LLMHelper] Using Google Gemini with ${this.geminiKeys.length} key(s) (round-robin)`)    
@@ -41,7 +42,6 @@ export class LLMHelper {
       throw new Error("Either provide Gemini API key or enable Ollama mode")
     }
 
-    // Primary provider (del2-style) as main path if configured
     if (primaryConfig?.token && primaryConfig?.wsUrl && primaryConfig?.chatUrl) {
       try {
         this.primary = new PrimaryAI(primaryConfig)
@@ -62,6 +62,16 @@ export class LLMHelper {
     return mdl
   }
 
+  private getAudioModelForKey(key: string, modelName: string): GenerativeModel {
+    const cacheKey = `${key}|${modelName}`
+    const cached = this.audioModelCache.get(cacheKey)
+    if (cached) return cached
+    const genAI = new GoogleGenerativeAI(key)
+    const mdl = genAI.getGenerativeModel({ model: modelName })
+    this.audioModelCache.set(cacheKey, mdl)
+    return mdl
+  }
+
   private getNextGeminiModel(initial: boolean = false): GenerativeModel {
     if (this.geminiKeys.length === 0) {
       if (this.model) return this.model
@@ -74,6 +84,21 @@ export class LLMHelper {
     }
     const key = this.geminiKeys[this.keyIndex]
     return this.getModelForKey(key)
+  }
+
+  private getNextGeminiAudioModel(initial: boolean = false): { model: GenerativeModel; modelName: string } {
+    if (this.geminiKeys.length === 0) {
+      if (this.model) return { model: this.model, modelName: "gemini-2.0-flash" }
+      throw new Error("Gemini not configured")
+    }
+    if (initial && this.keyIndex === -1) {
+      this.keyIndex = 0
+    } else {
+      this.keyIndex = (this.keyIndex + 1) % this.geminiKeys.length
+    }
+    const key = this.geminiKeys[this.keyIndex]
+    const name = this.audioModelNames[this.audioModelIndex % this.audioModelNames.length]
+    return { model: this.getAudioModelForKey(key, name), modelName: name }
   }
 
   private shouldRotateOnError(err: any): boolean {
@@ -92,9 +117,36 @@ export class LLMHelper {
       } catch (err) {
         lastErr = err
         if (this.geminiKeys.length > 1 && this.shouldRotateOnError(err)) {
-          // try next key
           continue
         }
+        break
+      }
+    }
+    throw lastErr
+  }
+
+  private shouldRotateAudioModelOnError(err: any): boolean {
+    const msg = String(err?.message || err)
+    return /not\s*found|not\s*supported|404/i.test(msg)
+  }
+
+  private async withGeminiRetryAudio<T>(op: (m: GenerativeModel) => Promise<T>): Promise<T> {
+    if (this.useOllama) throw new Error("Gemini not active")
+    const attempts = Math.max(1, this.geminiKeys.length * this.audioModelNames.length)
+    let lastErr: any
+    for (let i = 0; i < attempts; i++) {
+      const { model, modelName } = this.getNextGeminiAudioModel(i === 0)
+      try {
+        return await op(model)
+      } catch (err) {
+        lastErr = err
+        if (this.shouldRotateAudioModelOnError(err)) {
+          this.audioModelIndex = (this.audioModelIndex + 1) % this.audioModelNames.length
+          continue
+        } else if (this.geminiKeys.length > 1 && this.shouldRotateOnError(err)) {
+          continue
+        }
+        // For other errors, break
         break
       }
     }
@@ -112,9 +164,7 @@ export class LLMHelper {
   }
 
   private cleanJsonResponse(text: string): string {
-    // Remove markdown code block syntax if present
     text = text.replace(/^```(?:json)?\n/, '').replace(/\n```$/, '');
-    // Remove any leading/trailing whitespace
     text = text.trim();
     return text;
   }
@@ -166,18 +216,15 @@ export class LLMHelper {
         return
       }
 
-      // Check if current model exists, if not use the first available
       if (!availableModels.includes(this.ollamaModel)) {
         this.ollamaModel = availableModels[0]
         console.log(`[LLMHelper] Auto-selected first available model: ${this.ollamaModel}`)
       }
 
-      // Test the selected model works
       const testResult = await this.callOllama("Hello")
       console.log(`[LLMHelper] Successfully initialized with model: ${this.ollamaModel}`)
     } catch (error) {
       console.error(`[LLMHelper] Failed to initialize Ollama model: ${error.message}`)
-      // Try to use first available model as fallback
       try {
         const models = await this.getOllamaModels()
         if (models.length > 0) {
@@ -265,7 +312,6 @@ export class LLMHelper {
 
   public async analyzeAudioFile(audioPath: string) {
     try {
-      // Prefer Primary provider if it is configured and file is WAV PCM16 16k mono
       if (this.primary && /\.wav$/i.test(audioPath)) {
         try {
           const text = await this.primary.transcribeWavPcm16File(audioPath)
@@ -276,15 +322,22 @@ export class LLMHelper {
       }
 
       const audioData = await fs.promises.readFile(audioPath);
+      const guessedMime: string = (() => {
+        const lower = audioPath.toLowerCase()
+        if (lower.endsWith(".wav")) return "audio/wav"
+        if (lower.endsWith(".mp3")) return "audio/mpeg"
+        if (lower.endsWith(".ogg")) return "audio/ogg"
+        if (lower.endsWith(".webm")) return "audio/webm"
+        return "audio/webm"
+      })()
       const audioPart = {
         inlineData: {
           data: audioData.toString("base64"),
-          mimeType: "audio/mp3"
+          mimeType: guessedMime
         }
       };
-      // Step 1: get transcript only
       const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
-      const trResult = await this.withGeminiRetry(m => m.generateContent([transcriptPrompt, audioPart]));
+      const trResult = await this.withGeminiRetryAudio(m => m.generateContent([transcriptPrompt, audioPart]));
       const trText = (await trResult.response).text();
       return { text: trText, timestamp: Date.now() };
     } catch (error) {
@@ -295,21 +348,29 @@ export class LLMHelper {
 
   public async analyzeAudioFromBase64(data: string, mimeType: string, chatHistory?: string) {
     try {
+      const mt = (() => {
+        if (!mimeType) return "audio/webm"
+        const lower = String(mimeType).toLowerCase()
+        if (lower.startsWith("audio/webm")) return "audio/webm"
+        if (lower.startsWith("audio/ogg")) return "audio/ogg"
+        if (lower.startsWith("audio/mp3")) return "audio/mpeg"
+        if (lower.startsWith("audio/mpeg")) return "audio/mpeg"
+        if (lower.startsWith("audio/wav")) return "audio/wav"
+        if (lower.startsWith("audio/x-wav")) return "audio/wav"
+        return "audio/webm"
+      })();
       const audioPart = {
         inlineData: {
           data,
-          mimeType
+          mimeType: mt
         }
       };
       
-      // If chat history provided, get both transcript and direct response
       if (chatHistory) {
-        // Get transcript first (for displaying user question)
         const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
-        const trResult = await this.withGeminiRetry(m => m.generateContent([transcriptPrompt, audioPart]));
+        const trResult = await this.withGeminiRetryAudio(m => m.generateContent([transcriptPrompt, audioPart]));
         const trText = (await trResult.response).text();
         
-        // Then get response with context (text-only, faster than audio)
         const fullHistory = `${chatHistory}\nUser: ${trText}`;
         const prompt = `${this.systemPrompt}\n\nКонтекст диалога:\n${fullHistory}\n\nОтветь на последний запрос пользователя, учитывая контекст.`;
         const result = await this.withGeminiRetry(m => m.generateContent(prompt));
@@ -322,9 +383,8 @@ export class LLMHelper {
           isResponse: true 
         };
       } else {
-        // Step 1: get transcript only
         const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
-        const trResult = await this.withGeminiRetry(m => m.generateContent([transcriptPrompt, audioPart]));
+        const trResult = await this.withGeminiRetryAudio(m => m.generateContent([transcriptPrompt, audioPart]));
         const trText = (await trResult.response).text();
         return { text: trText, timestamp: Date.now(), isResponse: false };
       }
@@ -354,6 +414,15 @@ export class LLMHelper {
     }
   }
 
+  public async transcribePcm16Base64(pcmBase64: string, sampleRateHertz: number = 16000): Promise<{ text: string; timestamp: number }> {
+    if (!this.primary) {
+      throw new Error("PrimaryAI is not configured for PCM16 transcription")
+    }
+    const buf = Buffer.from(pcmBase64, "base64")
+    const text = await this.primary.transcribePcm16Buffer(buf, sampleRateHertz)
+    return { text, timestamp: Date.now() }
+  }
+
   public async chatWithGemini(message: string): Promise<string> {
     try {
       const composedPrompt = `${this.systemPrompt}\n\n${message}`;
@@ -366,7 +435,6 @@ export class LLMHelper {
           return response.text();
         } catch (err: any) {
           const msg = String(err?.message || err);
-          // Region restriction fallback
           if (msg.includes("User location is not supported")) {
             console.warn("[LLMHelper] Gemini blocked by region; attempting Ollama fallback...");
             try {
@@ -376,7 +444,6 @@ export class LLMHelper {
                   "Gemini недоступен в вашем регионе. Запустите Ollama (ollama serve) и установите модель: 'ollama pull llama3.2', затем попробуйте снова."
                 );
               }
-              // Ensure model exists
               const models = await this.getOllamaModels();
               if (models.length > 0 && !models.includes(this.ollamaModel)) {
                 this.ollamaModel = models[0];
@@ -399,7 +466,6 @@ export class LLMHelper {
   }
 
   public async chat(message: string): Promise<string> {
-    // Try Primary first, fallback to Gemini/Ollama
     if (this.primary) {
       try {
         return await this.primary.chat(message)
@@ -444,7 +510,6 @@ export class LLMHelper {
     if (model) {
       this.ollamaModel = model;
     } else {
-      // Auto-detect first available model
       await this.initializeOllamaModel();
     }
     
@@ -453,7 +518,6 @@ export class LLMHelper {
 
   public async switchToGemini(apiKey?: string): Promise<void> {
     if (apiKey) {
-      // Switch to a single provided key
       this.geminiKeys = [apiKey]
       this.keyIndex = -1
       this.modelCache.clear()
@@ -475,14 +539,12 @@ export class LLMHelper {
         if (!available) {
           return { success: false, error: `Ollama not available at ${this.ollamaUrl}` };
         }
-        // Test with a simple prompt
         await this.callOllama("Hello");
         return { success: true };
       } else {
         if (this.geminiKeys.length === 0 && !this.model) {
           return { success: false, error: "No Gemini model configured" };
         }
-        // Test with a simple prompt
         const result = await this.withGeminiRetry(m => m.generateContent("Hello"));
         const response = await result.response;
         const text = response.text(); // Ensure the response is valid

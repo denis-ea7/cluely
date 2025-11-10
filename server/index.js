@@ -35,12 +35,32 @@ async function initDb() {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+      premium_until TIMESTAMP WITH TIME ZONE
     );
   `)
+  
+  try {
+    await pool.query(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS premium_until TIMESTAMP WITH TIME ZONE;
+    `)
+    console.log("[api] Premium column migration completed")
+  } catch (e) {
+    if (!String(e?.message || "").includes("already exists")) {
+      console.warn("[api] Migration warning:", e?.message)
+    }
+  }
+  
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_premium_until ON users(premium_until);
+    `)
+  } catch (e) {
+    console.warn("[api] Index creation warning:", e?.message)
+  }
 }
 
-// Auth: register
 app.post("/auth/register", async (req, res) => {
   try {
     const { email, password } = req.body || {}
@@ -63,7 +83,6 @@ app.post("/auth/register", async (req, res) => {
   }
 })
 
-// Auth: login
 app.post("/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body || {}
@@ -72,7 +91,7 @@ app.post("/auth/login", async (req, res) => {
       console.log("[api] Login failed: email or password missing")
       return res.status(400).json({ error: "email_password_required" })
     }
-    const r = await pool.query("SELECT id, password_hash FROM users WHERE email=$1", [email.toLowerCase()])
+    const r = await pool.query("SELECT id, password_hash, premium_until FROM users WHERE email=$1", [email.toLowerCase()])
     if (!r.rowCount) {
       console.log("[api] Login failed: user not found")
       return res.status(401).json({ error: "invalid_credentials" })
@@ -84,15 +103,20 @@ app.post("/auth/login", async (req, res) => {
       return res.status(401).json({ error: "invalid_credentials" })
     }
     const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: "7d" })
-    console.log(`[api] Login successful, token generated: ${token.substring(0, 20)}...`)
-    res.json({ token })
+    const isPremium = user.premium_until && new Date(user.premium_until) > new Date()
+    console.log(`[api] Login successful, token generated: ${token.substring(0, 20)}..., premium: ${isPremium}`)
+    
+    res.json({ 
+      token,
+      premium: isPremium,
+      premiumUntil: user.premium_until || null
+    })
   } catch (e) {
     console.error("[api] Login error:", e)
     res.status(500).json({ error: "server_error" })
   }
 })
 
-// Deep link redirect (optional helper): /deeplink?token=xxx -> cluely://auth?token=xxx
 app.get("/deeplink", (req, res) => {
   const token = req.query.token
   if (!token) return res.status(400).send("token required")
@@ -100,7 +124,6 @@ app.get("/deeplink", (req, res) => {
   res.redirect(`${scheme}://auth?token=${encodeURIComponent(token)}`)
 })
 
-// Keys endpoint for key-agent
 app.get("/keys", (req, res) => {
   try {
     const auth = req.headers.authorization || ""
@@ -126,6 +149,42 @@ app.get("/keys", (req, res) => {
   }
 })
 
+app.get("/user/info", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || ""
+    const token = auth.replace(/^Bearer\s+/i, "")
+    if (!token) {
+      return res.status(401).json({ error: "unauthorized" })
+    }
+    
+    let decoded
+    try {
+      decoded = jwt.verify(token, JWT_SECRET)
+    } catch (e) {
+      return res.status(401).json({ error: "invalid_token" })
+    }
+    
+    const r = await pool.query("SELECT id, email, premium_until, created_at FROM users WHERE id=$1", [decoded.uid])
+    if (!r.rowCount) {
+      return res.status(404).json({ error: "user_not_found" })
+    }
+    
+    const user = r.rows[0]
+    const isPremium = user.premium_until && new Date(user.premium_until) > new Date()
+    
+    res.json({
+      id: user.id,
+      email: user.email,
+      premium: isPremium,
+      premiumUntil: user.premium_until || null,
+      createdAt: user.created_at
+    })
+  } catch (e) {
+    console.error("[api] User info error:", e)
+    res.status(500).json({ error: "server_error" })
+  }
+})
+
 app.get("/health", (_req, res) => res.json({ ok: true }))
 
 initDb()
@@ -134,5 +193,4 @@ initDb()
     console.error("DB init failed:", e)
     process.exit(1)
   })
-
 

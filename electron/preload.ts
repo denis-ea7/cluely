@@ -1,8 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron"
 
-// Types for the exposed Electron API
 interface ElectronAPI {
   updateContentDimensions: (dimensions: {
+    width: number
+    height: number
+  }) => Promise<void>
+  ensureWindowSize: (dimensions: {
     width: number
     height: number
   }) => Promise<void>
@@ -32,16 +35,20 @@ interface ElectronAPI {
   moveWindowDown: () => Promise<void>
   analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
+  transcribePcm16: (pcmBase64: string, sampleRate?: number) => Promise<{ text: string; timestamp: number }>
+  startTranscriptionStream: () => Promise<{ success: boolean }>
+  sendTranscriptionChunk: (pcmBase64: string) => Promise<{ success: boolean }>
+  stopTranscriptionStream: () => Promise<{ success: boolean }>
+  onTranscriptionInterim: (callback: (data: { text: string }) => void) => () => void
+  onTranscriptionError: (callback: (data: { error: string }) => void) => () => void
   analyzeImageFile: (path: string) => Promise<void>
   quitApp: () => Promise<void>
   
-  // Auth/Token Management
   getToken: () => Promise<string | null>
   setToken: (token: string) => Promise<{ success: boolean; error?: string }>
   clearToken: () => Promise<{ success: boolean }>
   openAuth: () => Promise<{ success: boolean }>
   
-  // LLM Model Management
   getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
   getAvailableOllamaModels: () => Promise<string[]>
   switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
@@ -52,35 +59,38 @@ interface ElectronAPI {
   onThemeChange: (callback: (theme: "dark" | "dark") => void) => () => void
   onTokenUpdated: (callback: (token: string) => void) => () => void
   onWindowFocused: (callback: () => void) => () => void
+  
+  getPremiumInfo: () => Promise<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }>
+  canUseApp: () => Promise<boolean>
+  openPremiumPurchase: () => Promise<{ success: boolean }>
+  refreshPremiumInfo: () => Promise<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }>
+  onPremiumStatusUpdated: (callback: (info: { isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }) => void) => () => void
 }
 
 export const PROCESSING_EVENTS = {
-  //global states
   UNAUTHORIZED: "procesing-unauthorized",
   NO_SCREENSHOTS: "processing-no-screenshots",
 
-  //states for generating the initial solution
   INITIAL_START: "initial-start",
   PROBLEM_EXTRACTED: "problem-extracted",
   SOLUTION_SUCCESS: "solution-success",
   INITIAL_SOLUTION_ERROR: "solution-error",
 
-  //states for processing the debugging
   DEBUG_START: "debug-start",
   DEBUG_SUCCESS: "debug-success",
   DEBUG_ERROR: "debug-error"
 } as const
 
-// Expose the Electron API to the renderer process
 contextBridge.exposeInMainWorld("electronAPI", {
   updateContentDimensions: (dimensions: { width: number; height: number }) =>
     ipcRenderer.invoke("update-content-dimensions", dimensions),
+  ensureWindowSize: (dimensions: { width: number; height: number }) =>
+    ipcRenderer.invoke("ensure-window-size", dimensions),
   takeScreenshot: () => ipcRenderer.invoke("take-screenshot"),
   getScreenshots: () => ipcRenderer.invoke("get-screenshots"),
   deleteScreenshot: (path: string) =>
     ipcRenderer.invoke("delete-screenshot", path),
 
-  // Event listeners
   onScreenshotTaken: (
     callback: (data: { path: string; preview: string }) => void
   ) => {
@@ -186,16 +196,28 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveWindowDown: () => ipcRenderer.invoke("move-window-down"),
   analyzeAudioFromBase64: (data: string, mimeType: string, chatHistory?: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType, chatHistory),
   analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
+  transcribePcm16: (pcmBase64: string, sampleRate?: number) => ipcRenderer.invoke("transcribe-pcm16", pcmBase64, sampleRate),
+  startTranscriptionStream: () => ipcRenderer.invoke("start-transcription-stream"),
+  sendTranscriptionChunk: (pcmBase64: string) => ipcRenderer.invoke("send-transcription-chunk", pcmBase64),
+  stopTranscriptionStream: () => ipcRenderer.invoke("stop-transcription-stream"),
+  onTranscriptionInterim: (callback: (data: { text: string }) => void) => {
+    const subscription = (_: any, data: { text: string }) => callback(data)
+    ipcRenderer.on("transcription-interim", subscription)
+    return () => ipcRenderer.removeListener("transcription-interim", subscription)
+  },
+  onTranscriptionError: (callback: (data: { error: string }) => void) => {
+    const subscription = (_: any, data: { error: string }) => callback(data)
+    ipcRenderer.on("transcription-error", subscription)
+    return () => ipcRenderer.removeListener("transcription-error", subscription)
+  },
   analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
   quitApp: () => ipcRenderer.invoke("quit-app"),
   
-  // Auth/Token Management
   getToken: () => ipcRenderer.invoke("get-token"),
   setToken: (token: string) => ipcRenderer.invoke("set-token", token),
   clearToken: () => ipcRenderer.invoke("clear-token"),
   openAuth: () => ipcRenderer.invoke("open-auth"),
   
-  // LLM Model Management
   getCurrentLlmConfig: () => ipcRenderer.invoke("get-current-llm-config"),
   getAvailableOllamaModels: () => ipcRenderer.invoke("get-available-ollama-models"),
   switchToOllama: (model?: string, url?: string) => ipcRenderer.invoke("switch-to-ollama", model, url),
@@ -217,5 +239,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const subscription = () => callback()
     ipcRenderer.on("window-focused", subscription)
     return () => ipcRenderer.removeListener("window-focused", subscription)
+  },
+  getPremiumInfo: () => ipcRenderer.invoke("get-premium-info"),
+  canUseApp: () => ipcRenderer.invoke("can-use-app"),
+  openPremiumPurchase: () => ipcRenderer.invoke("open-premium-purchase"),
+  refreshPremiumInfo: () => ipcRenderer.invoke("refresh-premium-info"),
+  onPremiumStatusUpdated: (callback: (info: { isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }) => void) => {
+    const subscription = (_: any, info: { isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }) => callback(info)
+    ipcRenderer.on("premium-status-updated", subscription)
+    return () => ipcRenderer.removeListener("premium-status-updated", subscription)
   }
 } as ElectronAPI)
