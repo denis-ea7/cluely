@@ -1,11 +1,13 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron"
 import { ProxyAgent, setGlobalDispatcher } from "undici"
 import dotenv from "dotenv"
+import path from "path"
 import { initializeIpcHandlers } from "./ipcHandlers"
 import { WindowHelper } from "./WindowHelper"
 import { ScreenshotHelper } from "./ScreenshotHelper"
 import { ShortcutsHelper } from "./shortcuts"
 import { ProcessingHelper } from "./ProcessingHelper"
+import { TokenManager } from "./TokenManager"
 
 export class AppState {
   private static instance: AppState | null = null
@@ -283,9 +285,141 @@ async function initializeApp() {
     console.warn("Proxy setup skipped:", e)
   }
   const appState = AppState.getInstance()
+  const tokenManager = new TokenManager()
+
+  // Initialize ProcessingHelper (loads keys from backend if KEY_AGENT_URL is set)
+  try {
+    console.log("[main] Initializing ProcessingHelper...")
+    await appState.processingHelper.initialize()
+    console.log("[main] ProcessingHelper initialized successfully")
+  } catch (e: any) {
+    console.error("[main] CRITICAL: Failed to initialize ProcessingHelper:", e.message)
+    console.error("[main] Application cannot start without keys from backend")
+    app.quit()
+    return
+  }
 
   // Initialize IPC handlers before window creation
   initializeIpcHandlers(appState)
+
+  // Deep link protocol registration
+  const scheme = process.env.DEEPLINK_SCHEME || "cluely"
+  
+  // Request single instance lock for deep link handling
+  const gotTheLock = app.requestSingleInstanceLock()
+  if (!gotTheLock) {
+    console.log("[main] Another instance is running, quitting...")
+    app.quit()
+    return
+  }
+  
+  // Register protocol handler
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1])])
+    }
+  } else {
+    app.setAsDefaultProtocolClient(scheme)
+  }
+  console.log(`[main] Deep link scheme registered: ${scheme}://`)
+
+  // Helper function to handle deep links
+  function handleDeepLink(url: string, tokenManager: TokenManager, appState: AppState, scheme: string) {
+    try {
+      const parsed = new URL(url)
+      console.log(`[main] Parsed URL - protocol: ${parsed.protocol}, hostname: ${parsed.hostname}`)
+      if (parsed.protocol === `${scheme}:` && parsed.hostname === "auth") {
+        const token = parsed.searchParams.get("token")
+        if (token && token.length > 0) {
+          console.log(`[main] Token received from deep link, length: ${token.length}`)
+          console.log(`[main] Token preview: ${token.substring(0, 30)}...`)
+          tokenManager.save(token)
+          const savedToken = tokenManager.load()
+          if (savedToken === token) {
+            console.log(`[main] Token saved and verified successfully`)
+            
+            // Function to notify renderer processes about token update
+            const notifyTokenUpdate = (delay: number = 0) => {
+              setTimeout(() => {
+                const mainWindow = appState.getMainWindow()
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  try {
+                    // Check if window is fully loaded
+                    if (mainWindow.webContents.isLoading()) {
+                      console.log(`[main] Window still loading, will send token-updated after load`)
+                      mainWindow.webContents.once('did-finish-load', () => {
+                        setTimeout(() => {
+                          mainWindow.webContents.send("token-updated", token)
+                          console.log(`[main] ✅ Sent token-updated event to renderer (after load)`)
+                        }, 300)
+                      })
+                    } else {
+                      mainWindow.webContents.send("token-updated", token)
+                      console.log(`[main] ✅ Sent token-updated event to renderer process`)
+                    }
+                  } catch (e) {
+                    console.error(`[main] ❌ Error sending token-updated event:`, e)
+                  }
+                } else {
+                  console.warn(`[main] ⚠️ Main window not available, cannot send token-updated event`)
+                }
+              }, delay)
+            }
+            
+            // Show window if app is ready
+            if (app.isReady()) {
+              appState.centerAndShowWindow()
+              console.log(`[main] Window centered and shown after auth`)
+              
+              // Notify immediately and with delays to ensure it's received
+              notifyTokenUpdate(300)  // After 300ms
+              notifyTokenUpdate(1000) // After 1 second
+              notifyTokenUpdate(2000) // After 2 seconds (fallback)
+            } else {
+              console.log(`[main] App not ready yet, token saved. Window will show when app is ready.`)
+              app.whenReady().then(() => {
+                appState.centerAndShowWindow()
+                notifyTokenUpdate(300)
+                notifyTokenUpdate(1000)
+                notifyTokenUpdate(2000)
+              })
+            }
+          } else {
+            console.error(`[main] Token save verification failed!`)
+          }
+        } else {
+          console.error("[main] No token or empty token in deep link URL")
+        }
+      } else {
+        console.warn(`[main] Invalid deep link format: ${url}`)
+      }
+    } catch (e) {
+      console.error("[main] Failed to handle deep link:", e)
+    }
+  }
+
+  // macOS deep link handler - must be registered before app is ready
+  app.on("open-url", (event, url) => {
+    event.preventDefault()
+    console.log(`[main] Deep link received (macOS): ${url}`)
+    handleDeepLink(url, tokenManager, appState, scheme)
+  })
+
+  // Windows/Linux: handle protocol link passed as arg
+  const maybeUrl = process.argv.find(arg => arg.startsWith(`${scheme}://`))
+  if (maybeUrl) {
+    console.log(`[main] Deep link received (Windows/Linux): ${maybeUrl}`)
+    handleDeepLink(maybeUrl, tokenManager, appState, scheme)
+  }
+  
+  // Also handle deep links when app becomes ready (for delayed deep links)
+  app.on("second-instance", (event, commandLine, workingDirectory) => {
+    const deepLinkUrl = commandLine.find(arg => arg.startsWith(`${scheme}://`))
+    if (deepLinkUrl) {
+      console.log(`[main] Deep link received via second-instance: ${deepLinkUrl}`)
+      handleDeepLink(deepLinkUrl, tokenManager, appState, scheme)
+    }
+  })
 
   app.whenReady().then(() => {
     console.log("App is ready")

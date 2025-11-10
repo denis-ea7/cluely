@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai"
 import fs from "fs"
+import { PrimaryAI, PrimaryAIConfig } from "./PrimaryAI"
 
 interface OllamaResponse {
   response: string
@@ -11,12 +12,13 @@ export class LLMHelper {
   private geminiKeys: string[] = []
   private keyIndex: number = -1
   private modelCache: Map<string, GenerativeModel> = new Map()
+  private primary: PrimaryAI | null = null
   private readonly systemPrompt = `Ты Wingman AI — полезный, проактивный помощник для любых задач (не только кодинг). Отвечай кратко и по делу. Если запрос подразумевает перечисление (напр. "какие типы данных в JavaScript"), верни только список пунктов, без вводных и пояснений. По умолчанию отвечай на русском языке. Если требуется вернуть JSON, строго следуй формату из запроса: ключи и структура — на английском, как в инструкции; значения-тексты — на русском. Если пользователь пишет на другом языке, всё равно отвечай на русском, пока явно не попросят иначе.`
   private useOllama: boolean = false
   private ollamaModel: string = "llama3.2"
   private ollamaUrl: string = "http://localhost:11434"
 
-  constructor(apiKey?: string | string[], useOllama: boolean = false, ollamaModel?: string, ollamaUrl?: string) {
+  constructor(apiKey?: string | string[], useOllama: boolean = false, ollamaModel?: string, ollamaUrl?: string, primaryConfig?: PrimaryAIConfig) {
     this.useOllama = useOllama
     
     if (useOllama) {
@@ -37,6 +39,17 @@ export class LLMHelper {
       console.log(`[LLMHelper] Using Google Gemini with ${this.geminiKeys.length} key(s) (round-robin)`)    
     } else {
       throw new Error("Either provide Gemini API key or enable Ollama mode")
+    }
+
+    // Primary provider (del2-style) as main path if configured
+    if (primaryConfig?.token && primaryConfig?.wsUrl && primaryConfig?.chatUrl) {
+      try {
+        this.primary = new PrimaryAI(primaryConfig)
+        console.log("[LLMHelper] PrimaryAI configured as main provider (transcription + chat)")
+      } catch (e) {
+        console.warn("[LLMHelper] Failed to init PrimaryAI:", (e as any)?.message || e)
+        this.primary = null
+      }
     }
   }
 
@@ -252,6 +265,16 @@ export class LLMHelper {
 
   public async analyzeAudioFile(audioPath: string) {
     try {
+      // Prefer Primary provider if it is configured and file is WAV PCM16 16k mono
+      if (this.primary && /\.wav$/i.test(audioPath)) {
+        try {
+          const text = await this.primary.transcribeWavPcm16File(audioPath)
+          return { text, timestamp: Date.now() }
+        } catch (e) {
+          console.warn("[LLMHelper] PrimaryAI WAV transcription failed, falling back to Gemini:", (e as any)?.message || e)
+        }
+      }
+
       const audioData = await fs.promises.readFile(audioPath);
       const audioPart = {
         inlineData: {
@@ -270,7 +293,7 @@ export class LLMHelper {
     }
   }
 
-  public async analyzeAudioFromBase64(data: string, mimeType: string) {
+  public async analyzeAudioFromBase64(data: string, mimeType: string, chatHistory?: string) {
     try {
       const audioPart = {
         inlineData: {
@@ -278,11 +301,33 @@ export class LLMHelper {
           mimeType
         }
       };
-      // Step 1: get transcript only
-      const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
-      const trResult = await this.withGeminiRetry(m => m.generateContent([transcriptPrompt, audioPart]));
-      const trText = (await trResult.response).text();
-      return { text: trText, timestamp: Date.now() };
+      
+      // If chat history provided, get both transcript and direct response
+      if (chatHistory) {
+        // Get transcript first (for displaying user question)
+        const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
+        const trResult = await this.withGeminiRetry(m => m.generateContent([transcriptPrompt, audioPart]));
+        const trText = (await trResult.response).text();
+        
+        // Then get response with context (text-only, faster than audio)
+        const fullHistory = `${chatHistory}\nUser: ${trText}`;
+        const prompt = `${this.systemPrompt}\n\nКонтекст диалога:\n${fullHistory}\n\nОтветь на последний запрос пользователя, учитывая контекст.`;
+        const result = await this.withGeminiRetry(m => m.generateContent(prompt));
+        const responseText = (await result.response).text();
+        
+        return { 
+          text: responseText, 
+          transcript: trText,
+          timestamp: Date.now(), 
+          isResponse: true 
+        };
+      } else {
+        // Step 1: get transcript only
+        const transcriptPrompt = `Транскрибируй речь точно. Верни ТОЛЬКО текст вопроса/реплики пользователя без пояснений.`;
+        const trResult = await this.withGeminiRetry(m => m.generateContent([transcriptPrompt, audioPart]));
+        const trText = (await trResult.response).text();
+        return { text: trText, timestamp: Date.now(), isResponse: false };
+      }
     } catch (error) {
       console.error("Error analyzing audio from base64:", error);
       throw error;
@@ -354,6 +399,14 @@ export class LLMHelper {
   }
 
   public async chat(message: string): Promise<string> {
+    // Try Primary first, fallback to Gemini/Ollama
+    if (this.primary) {
+      try {
+        return await this.primary.chat(message)
+      } catch (e) {
+        console.warn("[LLMHelper] PrimaryAI chat failed, falling back:", (e as any)?.message || e)
+      }
+    }
     return this.chatWithGemini(message);
   }
 

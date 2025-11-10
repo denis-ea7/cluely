@@ -7,7 +7,8 @@
       screenshots: Array<{ path: string; preview: string }>
       onChatToggle: () => void
       onSettingsToggle: () => void
-      onAudioTranscript?: (text: string) => void
+      onAudioTranscript?: (data: { text: string; isResponse: boolean; transcript?: string }) => void
+      chatHistory?: string
     }
 
     const QueueCommands: React.FC<QueueCommandsProps> = ({
@@ -15,7 +16,8 @@
       screenshots,
       onChatToggle,
       onSettingsToggle,
-      onAudioTranscript
+      onAudioTranscript,
+      chatHistory
     }) => {
       const [isTooltipVisible, setIsTooltipVisible] = useState(false)
       const tooltipRef = useRef<HTMLDivElement>(null)
@@ -143,9 +145,13 @@
               reader.onloadend = async () => {
                 const base64Data = (reader.result as string).split(',')[1]
                 try {
-                  const result = await window.electronAPI.analyzeAudioFromBase64(base64Data, blob.type)
+                  const result = await window.electronAPI.analyzeAudioFromBase64(base64Data, blob.type, chatHistory)
                   setAudioResult(result.text)
-                  onAudioTranscript?.(result.text)
+                  onAudioTranscript?.({ 
+                    text: result.text, 
+                    isResponse: result.isResponse || false,
+                    transcript: result.transcript
+                  })
                 } catch (err) {
                   setAudioResult('Audio analysis failed.')
                 }

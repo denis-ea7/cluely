@@ -35,6 +35,12 @@ interface ElectronAPI {
   analyzeImageFile: (path: string) => Promise<void>
   quitApp: () => Promise<void>
   
+  // Auth/Token Management
+  getToken: () => Promise<string | null>
+  setToken: (token: string) => Promise<{ success: boolean; error?: string }>
+  clearToken: () => Promise<{ success: boolean }>
+  openAuth: () => Promise<{ success: boolean }>
+  
   // LLM Model Management
   getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
   getAvailableOllamaModels: () => Promise<string[]>
@@ -43,7 +49,9 @@ interface ElectronAPI {
   testLlmConnection: () => Promise<{ success: boolean; error?: string }>
   
   invoke: (channel: string, ...args: any[]) => Promise<any>
-  onThemeChange: (callback: (theme: "light" | "dark") => void) => () => void
+  onThemeChange: (callback: (theme: "dark" | "dark") => void) => () => void
+  onTokenUpdated: (callback: (token: string) => void) => () => void
+  onWindowFocused: (callback: () => void) => () => void
 }
 
 export const PROCESSING_EVENTS = {
@@ -176,10 +184,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveWindowRight: () => ipcRenderer.invoke("move-window-right"),
   moveWindowUp: () => ipcRenderer.invoke("move-window-up"),
   moveWindowDown: () => ipcRenderer.invoke("move-window-down"),
-  analyzeAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType),
+  analyzeAudioFromBase64: (data: string, mimeType: string, chatHistory?: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType, chatHistory),
   analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
   analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
   quitApp: () => ipcRenderer.invoke("quit-app"),
+  
+  // Auth/Token Management
+  getToken: () => ipcRenderer.invoke("get-token"),
+  setToken: (token: string) => ipcRenderer.invoke("set-token", token),
+  clearToken: () => ipcRenderer.invoke("clear-token"),
+  openAuth: () => ipcRenderer.invoke("open-auth"),
   
   // LLM Model Management
   getCurrentLlmConfig: () => ipcRenderer.invoke("get-current-llm-config"),
@@ -189,9 +203,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
   testLlmConnection: () => ipcRenderer.invoke("test-llm-connection"),
   
   invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
-  onThemeChange: (callback: (theme: "light" | "dark") => void) => {
-    const subscription = (_: any, theme: "light" | "dark") => callback(theme)
+  onThemeChange: (callback: (theme: "dark" | "dark") => void) => {
+    const subscription = (_: any, theme: "dark" | "dark") => callback(theme)
     ipcRenderer.on("theme-change", subscription)
     return () => ipcRenderer.removeListener("theme-change", subscription)
+  },
+  onTokenUpdated: (callback: (token: string) => void) => {
+    const subscription = (_: any, token: string) => callback(token)
+    ipcRenderer.on("token-updated", subscription)
+    return () => ipcRenderer.removeListener("token-updated", subscription)
+  },
+  onWindowFocused: (callback: () => void) => {
+    const subscription = () => callback()
+    ipcRenderer.on("window-focused", subscription)
+    return () => ipcRenderer.removeListener("window-focused", subscription)
   }
 } as ElectronAPI)
