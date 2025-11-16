@@ -3,7 +3,7 @@ import { ipcMain, app, shell, BrowserWindow } from "electron"
 import { AppState } from "./main"
 import { TokenManager } from "./TokenManager"
 
-// Глобальное хранилище активных стримов транскрипции (по webContents.id)
+
 const activeTranscriptionStreams = new Map<number, { sendChunk: (pcmChunk: Buffer) => void; close: () => void }>()
 
 export function initializeIpcHandlers(appState: AppState): void {
@@ -30,6 +30,24 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   ipcMain.handle("delete-screenshot", async (event, path: string) => {
     return appState.deleteScreenshot(path)
+  })
+
+  
+  ipcMain.handle("chat-stream-start", async (event, message: string) => {
+    try {
+      const helper = appState.processingHelper.getLLMHelper()
+      const final = await helper.chatStream(message, (delta: string) => {
+        try {
+          event.sender.send("chat-stream-delta", { delta })
+        } catch {}
+      })
+      event.sender.send("chat-stream-complete", { text: final })
+      return { ok: true }
+    } catch (error: any) {
+      console.error("Error in chat-stream-start:", error)
+      event.sender.send("chat-stream-error", { error: String(error?.message || error) })
+      throw error
+    }
   })
 
   ipcMain.handle("take-screenshot", async () => {
@@ -211,11 +229,11 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // Стриминг транскрипции в реальном времени (как в del2.js)
+  
   ipcMain.handle("start-transcription-stream", async (event) => {
     try {
       const webContentsId = event.sender.id
-      // Закрываем предыдущий стрим если есть
+      
       const existing = activeTranscriptionStreams.get(webContentsId)
       if (existing) {
         existing.close()
@@ -230,7 +248,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
       const stream = primary.createTranscriptionStream(
         (text: string) => {
-          // Отправляем interim текст в renderer
+          
           event.sender.send("transcription-interim", { text })
         },
         (error: Error) => {
@@ -278,7 +296,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // Очистка при закрытии окна
+  
   app.on("web-contents-created", (_event, webContents) => {
     webContents.on("destroyed", () => {
       const stream = activeTranscriptionStreams.get(webContents.id)
@@ -318,7 +336,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       throw error;
     }
   });
-  // optional alias to generic chat
+  
   ipcMain.handle("chat", async (_event, message: string) => {
     try {
       const result = await appState.processingHelper.getLLMHelper().chat(message);
@@ -411,3 +429,4 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   });
 }
+

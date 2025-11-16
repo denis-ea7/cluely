@@ -17,7 +17,7 @@ files.forEach(file => {
   const code = fs.readFileSync(filePath, 'utf8');
   
   const obfuscationResult = JavaScriptObfuscator.obfuscate(code, {
-    // Безопасный профиль для Gatekeeper/нотаризации
+    
     compact: true,
     controlFlowFlattening: false,
     deadCodeInjection: false,

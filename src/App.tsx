@@ -81,6 +81,14 @@ declare global {
   }
 }
 
+// Нормализация вопроса для дедупликации
+const normalizeQuestion = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.,!…–—-]+$/g, "")
+    .trim()
+
 const App: React.FC = () => {
   const [view, setView] = useState<"queue" | "solutions" | "debug">("queue")
   const containerRef = useRef<HTMLDivElement>(null)
@@ -89,15 +97,18 @@ const App: React.FC = () => {
   const [showPremiumModal, setShowPremiumModal] = useState(false)
   const [paused, setPaused] = useState(false)
   const [activeTab, setActiveTab] = useState<"chat" | "transcript">("chat")
-  const [transcript, setTranscript] = useState<string[]>([])
+  const [transcript, setTranscript] = useState<string[]>([]) // только вопросы (Пользователь)
+  const [answers, setAnswers] = useState<string[]>([])       // только ответы ассистента
   const [showSummary, setShowSummary] = useState(false)
   const [summaryText, setSummaryText] = useState("")
   const [showProfile, setShowProfile] = useState(false)
-  const [sessionActive, setSessionActive] = useState(true)
+  const [sessionActive, setSessionActive] = useState(true)  
   const [lastAssistantAnswer, setLastAssistantAnswer] = useState("")
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const transcriptRef = useRef<string[]>([])
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([])
+  const floatingRef = useRef<HTMLDivElement>(null)
+  const chatInFlightRef = useRef<boolean>(false)
   
   const { data: token, refetch: refetchToken } = useQuery(
     ["auth_token"], 
@@ -318,15 +329,68 @@ const App: React.FC = () => {
     }
   }
 
+  
+  const askStream = useCallback(async (message: string): Promise<string> => {
+    let acc = ""
+    // Сбрасываем текст текущего ответа перед началом стриминга
+    setLastAssistantAnswer("")
+    
+    const unDelta = window.electronAPI.onChatDelta?.(({ delta }) => {
+      if (!delta) return
+      acc += delta
+      setLastAssistantAnswer((prev) => {
+        const next = (prev || "") + delta
+        // Стрим обновляет текущий ответ в списке answers
+        setAnswers((prev) => {
+          const idx = streamingAssistantIndexRef.current ?? (prev.length - 1)
+          if (idx == null || idx < 0 || idx >= prev.length) {
+            // если первый чанк — создаем новую запись и фиксируем индекс
+            const created = [...prev, next]
+            streamingAssistantIndexRef.current = created.length - 1
+            return created
+          }
+          const updated = [...prev]
+          updated[idx] = next
+          return updated
+        })
+        return next
+      })
+    })
+    const unDone = window.electronAPI.onChatComplete?.(({ text }) => {
+      acc = text || acc
+    })
+    await window.electronAPI.startChatStream?.(message)
+    
+    setTimeout(() => {
+      unDelta && unDelta()
+      unDone && unDone()
+    }, 100)
+    return acc
+  }, [])
+
+  const recentQuestionsRef = useRef<string[]>([])
+
   const appendTranscript = useCallback((entry: { speaker: "user" | "assistant"; text: string }) => {
     if (!entry.text?.trim()) return
     const clean = entry.text.trim()
-    const prefix = entry.speaker === "user" ? "Пользователь" : "Ассистент"
-    setTranscript((prev) => {
-      const next = [...prev, `${prefix}: ${clean}`]
-      transcriptRef.current = next
-      return next
-    })
+    if (entry.speaker === "user") {
+      // дедупликация похожих вопросов, чтобы не плодить повтор
+      const norm = normalizeQuestion(clean)
+      const last = recentQuestionsRef.current[recentQuestionsRef.current.length - 1]
+      const isSameOrSubset =
+        !!last &&
+        (norm.includes(last) || last.includes(norm)) &&
+        Math.abs(norm.length - last.length) < 20
+      if (isSameOrSubset) {
+        return
+      }
+      recentQuestionsRef.current = [...recentQuestionsRef.current.slice(-4), norm]
+      setTranscript((prev) => {
+        const next = [...prev, `Пользователь: ${clean}`]
+        transcriptRef.current = next
+        return next
+      })
+    }
     conversationRef.current = [...conversationRef.current, { role: entry.speaker, text: clean }]
   }, [])
 
@@ -337,10 +401,12 @@ const App: React.FC = () => {
       .join("\n")
   }, [])
 
-  // Агрегатор голоса как в del2.js
-  const lastVoiceTextRef = useRef<string>("")
-  const lastSentVoiceTextRef = useRef<string>("")
-  const voiceTimerRef = useRef<number | null>(null)
+  
+  // Накопленный текст с момента последнего Assist (для отправки при нажатии Assist)
+  const accumulatedVoiceTextRef = useRef<string>("")
+  const lastInterimTextRef = useRef<string>("")
+  // Индекс строки ассистента, в которую пишется текущий стрим-ответ
+  const streamingAssistantIndexRef = useRef<number | null>(null)
 
   const handleVoiceResult = useCallback(
     async (result: { text: string; isResponse?: boolean; transcript?: string }) => {
@@ -354,8 +420,25 @@ const App: React.FC = () => {
         setLastAssistantAnswer(incoming)
         return
       }
-      // Не вызываем чат на каждый interim — копим последний текст
-      lastVoiceTextRef.current = incoming
+      
+      // Игнорируем interim результаты, которые идентичны предыдущим
+      if (incoming === lastInterimTextRef.current) {
+        return
+      }
+      
+      // Обновляем накопленный текст только если он действительно новый
+      const normalizedIncoming = normalizeQuestion(incoming)
+      const normalizedAccumulated = normalizeQuestion(accumulatedVoiceTextRef.current)
+      
+      // Если новый текст является расширением накопленного - обновляем накопленный
+      if (normalizedIncoming.length > normalizedAccumulated.length && normalizedIncoming.startsWith(normalizedAccumulated)) {
+        accumulatedVoiceTextRef.current = incoming
+        lastInterimTextRef.current = incoming
+      } else if (normalizedIncoming !== normalizedAccumulated && !normalizedIncoming.includes(normalizedAccumulated)) {
+        // Если это совершенно новый текст (не расширение) - заменяем накопленный
+        accumulatedVoiceTextRef.current = incoming
+        lastInterimTextRef.current = incoming
+      }
     },
     []
   )
@@ -375,43 +458,85 @@ const App: React.FC = () => {
     getChatHistory: conversationToString
   })
 
-  // Таймер: каждые 5 сек отправляем последний распознанный текст, если он изменился
-  useEffect(() => {
-    if (!isVoiceRecording) {
-      if (voiceTimerRef.current) {
-        window.clearInterval(voiceTimerRef.current)
-        voiceTimerRef.current = null
+  // Функция для отправки накопленного текста при нажатии Assist
+  const handleAssistClick = useCallback(async () => {
+    const textToSend = (accumulatedVoiceTextRef.current || "").trim()
+    if (!textToSend || textToSend.length < 3) {
+      // Если нет накопленного текста, отправляем запрос по всему контексту
+      const history = conversationToString()
+      const prompt = history
+        ? `Контекст диалога:\n${history}\n\nДай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен.`
+        : "Дай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен."
+      
+      if (chatInFlightRef.current) return
+      chatInFlightRef.current = true
+      
+      try {
+        setAnswers((prev) => prev.length === 0 ? [""] : prev)
+        streamingAssistantIndexRef.current = null
+        const response = await askStream(prompt)
+        // Добавляем в контекст
+        conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
+      } catch (err: any) {
+        const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки."
+        setVoiceError(message)
+      } finally {
+        chatInFlightRef.current = false
       }
       return
     }
-    if (voiceTimerRef.current) return
-    voiceTimerRef.current = window.setInterval(async () => {
-      const text = (lastVoiceTextRef.current || "").trim()
-      if (!text || text === lastSentVoiceTextRef.current) return
-      lastSentVoiceTextRef.current = text
-      appendTranscript({ speaker: "user", text })
-      try {
-        const history = conversationToString()
-        const prompt = history
-          ? `Контекст диалога:\n${history}\n\nОтветь на последнюю реплику пользователя, учитывая контекст.`
-          : `Ответь на следующий запрос пользователя:\n${text}`
-        const response = await geminiAsk(prompt)
-        appendTranscript({ speaker: "assistant", text: response })
-        setLastAssistantAnswer(response)
-      } catch (err: any) {
-        const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки голоса."
-        appendTranscript({ speaker: "assistant", text: message })
-        setLastAssistantAnswer(message)
-        setVoiceError(message)
-      }
-    }, 5000) as unknown as number
-    return () => {
-      if (voiceTimerRef.current) {
-        window.clearInterval(voiceTimerRef.current)
-        voiceTimerRef.current = null
-      }
+    
+    if (chatInFlightRef.current) return
+    chatInFlightRef.current = true
+    
+    // Добавляем вопрос пользователя в транскрипт и контекст
+    appendTranscript({ speaker: "user", text: textToSend })
+    conversationRef.current = [...conversationRef.current, { role: "user", text: textToSend }]
+    
+    // Очищаем накопленный буфер после отправки
+    accumulatedVoiceTextRef.current = ""
+    lastInterimTextRef.current = ""
+    
+    try {
+      // Получаем полный контекст диалога для отправки в ИИ
+      const history = conversationToString()
+      // Отправляем только новый текст, но с учетом всего контекста
+      const prompt = history
+        ? `Контекст диалога:\n${history}\n\nОтветь на последнюю реплику пользователя, учитывая контекст.`
+        : `Ответь на следующий запрос пользователя:\n${textToSend}`
+      
+      // Подготовить слот для ответа в answers
+      setAnswers((prev) => prev.length === 0 ? [""] : prev)
+      streamingAssistantIndexRef.current = null
+      const response = await askStream(prompt)
+      
+      // Добавляем ответ в контекст
+      conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
+      
+    } catch (err: any) {
+      const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки голоса."
+      appendTranscript({ speaker: "assistant", text: message })
+      setLastAssistantAnswer(message)
+      setVoiceError(message)
+      conversationRef.current = [...conversationRef.current, { role: "assistant", text: message }]
+    } finally {
+      chatInFlightRef.current = false
     }
-  }, [isVoiceRecording, appendTranscript, conversationToString])
+  }, [appendTranscript, conversationToString, askStream])
+
+  // Авторасширение окна под фиксированный блок чата/транскрипта
+  useEffect(() => {
+    const el = floatingRef.current
+    if (!el || !window.electronAPI?.ensureWindowSize) return
+    try {
+      const rect = el.getBoundingClientRect()
+      const requiredWidth = Math.ceil(rect.left + rect.width + 24)
+      const requiredHeight = Math.ceil(rect.top + rect.height + 24)
+      if (requiredWidth > 0 && requiredHeight > 0) {
+        window.electronAPI.ensureWindowSize({ width: requiredWidth, height: requiredHeight })
+      }
+    } catch {}
+  }, [activeTab, transcript, lastAssistantAnswer, sessionActive])
 
   const selectVoiceDevice = useCallback(
     (id: string) => {
@@ -436,11 +561,8 @@ const App: React.FC = () => {
 
   const handleChatAnswered = useCallback(
     (payload: { question?: string; answer: string; type: "assist" | "custom" }) => {
-      if (payload.type === "custom" && payload.question?.trim()) {
-        appendTranscript({ speaker: "user", text: payload.question.trim() })
-      }
       if (payload.answer?.trim()) {
-        appendTranscript({ speaker: "assistant", text: payload.answer.trim() })
+        setAnswers((prev) => [...prev, payload.answer.trim()])
         setLastAssistantAnswer(payload.answer.trim())
       }
     },
@@ -472,7 +594,10 @@ const App: React.FC = () => {
     stopVoiceRecording()
     conversationRef.current = []
     transcriptRef.current = []
+    accumulatedVoiceTextRef.current = ""
+    lastInterimTextRef.current = ""
     setTranscript([])
+    setAnswers([])
     setSummaryText("")
     setShowSummary(false)
     setSessionActive(true)
@@ -481,6 +606,7 @@ const App: React.FC = () => {
     setShowProfile(false)
     setLastAssistantAnswer("")
     setVoiceError(null)
+    chatInFlightRef.current = false
     setTimeout(() => {
       window.electronAPI.updateContentDimensions?.({
         width: document.body.scrollWidth,
@@ -512,132 +638,165 @@ const App: React.FC = () => {
   }
 
   return (
-    <div ref={containerRef} className="min-h-0">
-        <ToastProvider>
-        {(() => {
-          if (token) {
-            // console.log("[App] 🔑 Token exists in UI, length:", token.length)
-          } else {
-            console.log("[App] ❌ No token in UI")
-          }
-          
-          if (!token) {
-            return (
-              <div style={{ 
-                padding: "12px 16px", 
-                background: "#111827", 
-                color: "#fff", 
-                borderRadius: 8, 
-                marginBottom: 12,
-                boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Требуется авторизация</div>
-                    <div style={{ fontSize: "12px", opacity: 0.8 }}>Для работы приложения необходимо войти в систему</div>
+    <div
+      ref={containerRef}
+      className="min-h-0"
+      style={{
+        padding: sessionActive ? 0 : 16,
+        background: sessionActive ? "transparent" : "#f3f4f6",
+        minHeight: "100vh",
+        transition: "background 0.15s ease-in-out"
+      }}
+    >
+      <ToastProvider>
+        {!sessionActive &&
+          (() => {
+            if (token) {
+              // token ok
+            } else {
+              console.log("[App] ❌ No token in UI")
+            }
+
+            if (!token) {
+              return (
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    background: "#111827",
+                    color: "#fff",
+                    borderRadius: 8,
+                    marginBottom: 12,
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Требуется авторизация</div>
+                      <div style={{ fontSize: "12px", opacity: 0.8 }}>
+                        Для работы приложения необходимо войти в систему
+                      </div>
+                      <button
+                        onClick={() => {
+                          console.log("[App] Manual token refresh requested")
+                          refetchToken()
+                        }}
+                        style={{
+                          marginTop: 8,
+                          padding: "4px 8px",
+                          fontSize: "11px",
+                          background: "rgba(255,255,255,0.1)",
+                          color: "#fff",
+                          border: "1px solid rgba(255,255,255,0.2)",
+                          borderRadius: 4,
+                          cursor: "pointer"
+                        }}
+                      >
+                        🔄 Проверить токен
+                      </button>
+                    </div>
                     <button
-                      onClick={() => {
-                        console.log("[App] Manual token refresh requested")
-                        refetchToken()
+                      onClick={async () => {
+                        try {
+                          console.log("[App] Opening auth page...")
+                          const result =
+                            (await window.electronAPI.openAuth?.()) ||
+                            (await window.electronAPI.invoke("open-auth"))
+                          console.log("[App] Open auth result:", result)
+                          setTimeout(() => refetchToken(), 2000)
+                          setTimeout(() => refetchToken(), 5000)
+                          setTimeout(() => refetchToken(), 10000)
+                        } catch (e) {
+                          console.error("[App] Error opening auth:", e)
+                          alert(
+                            "Ошибка открытия страницы авторизации: " +
+                              (e instanceof Error ? e.message : String(e))
+                          )
+                        }
                       }}
                       style={{
-                        marginTop: 8,
-                        padding: "4px 8px",
-                        fontSize: "11px",
-                        background: "rgba(255,255,255,0.1)",
+                        background: "#2563eb",
                         color: "#fff",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        borderRadius: 4,
-                        cursor: "pointer"
+                        border: "none",
+                        padding: "10px 20px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        transition: "background 0.2s"
                       }}
+                      onMouseOver={(e) => (e.currentTarget.style.background = "#1d4ed8")}
+                      onMouseOut={(e) => (e.currentTarget.style.background = "#2563eb")}
                     >
-                      🔄 Проверить токен
+                      Авторизоваться
                     </button>
+                  </div>
+                </div>
+              )
+            } else {
+              return (
+                <div
+                  style={{
+                    padding: "10px 16px",
+                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                    color: "#fff",
+                    borderRadius: 8,
+                    marginBottom: 12,
+                    fontSize: "13px",
+                    boxShadow: "0 2px 4px rgba(16,185,129,0.2)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: "16px" }}>✅</span>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>Авторизован</div>
+                      <div style={{ fontSize: "11px", opacity: 0.9 }}>
+                        Токен: {token.substring(0, 25)}...
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={async () => {
-                      try {
-                        console.log("[App] Opening auth page...")
-                        const result = await (window.electronAPI.openAuth?.() || window.electronAPI.invoke("open-auth"))
-                        console.log("[App] Open auth result:", result)
-                        setTimeout(() => refetchToken(), 2000)
-                        setTimeout(() => refetchToken(), 5000)
-                        setTimeout(() => refetchToken(), 10000)
-                      } catch (e) {
-                        console.error("[App] Error opening auth:", e)
-                        alert("Ошибка открытия страницы авторизации: " + (e instanceof Error ? e.message : String(e)))
+                      if (confirm("Вы уверены, что хотите выйти?")) {
+                        try {
+                          await (
+                            window.electronAPI.clearToken?.() ||
+                            window.electronAPI.invoke("clear-token")
+                          )
+                          queryClient.setQueryData(["auth_token"], null)
+                          await refetchToken()
+                          console.log("[App] Token cleared and UI updated")
+                        } catch (e) {
+                          console.error("[App] Error clearing token:", e)
+                        }
                       }
                     }}
-                    style={{ 
-                      background: "#2563eb", 
-                      color: "#fff", 
-                      border: "none", 
-                      padding: "10px 20px", 
-                      borderRadius: 6, 
+                    style={{
+                      background: "rgba(255,255,255,0.2)",
+                      color: "#fff",
+                      border: "1px solid rgba(255,255,255,0.3)",
+                      padding: "6px 12px",
+                      borderRadius: 4,
                       cursor: "pointer",
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                      transition: "background 0.2s"
+                      fontSize: "11px",
+                      fontWeight: 600
                     }}
-                    onMouseOver={(e) => e.currentTarget.style.background = "#1d4ed8"}
-                    onMouseOut={(e) => e.currentTarget.style.background = "#2563eb"}
                   >
-                    Авторизоваться
+                    Выйти
                   </button>
                 </div>
-              </div>
-            )
-          } else {
-            return (
-              <div style={{ 
-                padding: "10px 16px", 
-                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)", 
-                color: "#fff", 
-                borderRadius: 8, 
-                marginBottom: 12,
-                fontSize: "13px",
-                boxShadow: "0 2px 4px rgba(16,185,129,0.2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: "16px" }}>✅</span>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>Авторизован</div>
-                    <div style={{ fontSize: "11px", opacity: 0.9 }}>Токен: {token.substring(0, 25)}...</div>
-                  </div>
-                </div>
-                <button
-                  onClick={async () => {
-                    if (confirm("Вы уверены, что хотите выйти?")) {
-                      try {
-                        await (window.electronAPI.clearToken?.() || window.electronAPI.invoke("clear-token"))
-                        queryClient.setQueryData(["auth_token"], null)
-                        await refetchToken()
-                        console.log("[App] Token cleared and UI updated")
-                      } catch (e) {
-                        console.error("[App] Error clearing token:", e)
-                      }
-                    }
-                  }}
-                  style={{
-                    background: "rgba(255,255,255,0.2)",
-                    color: "#fff",
-                    border: "1px solid rgba(255,255,255,0.3)",
-                    padding: "6px 12px",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    fontSize: "11px",
-                    fontWeight: 600
-                  }}
-                >
-                  Выйти
-                </button>
-              </div>
-            )
-          }
-        })()}
+              )
+            }
+          })()}
         {voiceError && (
           <div
             style={{
@@ -653,13 +812,15 @@ const App: React.FC = () => {
             {voiceError}
           </div>
         )}
-          {view === "queue" ? (
-            <Queue setView={setView} onTranscriptUpdate={appendTranscript} />
-          ) : view === "solutions" ? (
-            <Solutions setView={setView} />
-          ) : (
-            <></>
-          )}
+          {!sessionActive ? (
+            view === "queue" ? (
+              <Queue setView={setView} onTranscriptUpdate={appendTranscript} />
+            ) : view === "solutions" ? (
+              <Solutions setView={setView} />
+            ) : (
+              <></>
+            )
+          ) : null}
           <ToastViewport />
         
         <PremiumModal
@@ -706,15 +867,17 @@ const App: React.FC = () => {
                 transform: "translateX(-50%)",
                 zIndex: 9990
               }}
+              ref={floatingRef}
             >
               {activeTab === "transcript" ? (
                 <TranscriptView lines={transcript} />
               ) : (
                 <ChatView
-                  transcript={transcript}
+                  answers={answers}
                   onAsk={geminiAsk}
                   externalAnswer={lastAssistantAnswer}
                   onAnswered={handleChatAnswered}
+                  onAssistClick={handleAssistClick}
                 />
               )}
             </div>

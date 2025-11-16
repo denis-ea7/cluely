@@ -7,7 +7,7 @@ const distElectronDir = path.join(__dirname, '../dist-electron');
 const filesToCompile = ['main.js', 'preload.js'];
 const otherFiles = ['ipcHandlers.js', 'LLMHelper.js', 'ProcessingHelper.js', 'ScreenshotHelper.js', 'WindowHelper.js', 'shortcuts.js'];
 
-// Compile all files
+
 [...filesToCompile, ...otherFiles].forEach(file => {
   const filePath = path.join(distElectronDir, file);
   if (!fs.existsSync(filePath)) {
@@ -23,18 +23,18 @@ const otherFiles = ['ipcHandlers.js', 'LLMHelper.js', 'ProcessingHelper.js', 'Sc
   }
 });
 
-// Backup original files before replacing
+
 const mainPath = path.join(distElectronDir, 'main.js');
 const preloadPath = path.join(distElectronDir, 'preload.js');
 const mainBackupPath = path.join(distElectronDir, 'main-backup.js');
 const preloadBackupPath = path.join(distElectronDir, 'preload-backup.js');
 
-// Backup main.js
+
 if (fs.existsSync(mainPath) && !fs.existsSync(mainBackupPath)) {
   fs.copyFileSync(mainPath, mainBackupPath);
 }
 
-// Replace main.js with loader
+
 const mainLoader = `try {
   require('bytenode');
   module.exports = require('./main.jsc');
@@ -45,12 +45,12 @@ const mainLoader = `try {
 }`;
 fs.writeFileSync(mainPath, mainLoader);
 
-// Backup preload.js
+
 if (fs.existsSync(preloadPath) && !fs.existsSync(preloadBackupPath)) {
   fs.copyFileSync(preloadPath, preloadBackupPath);
 }
 
-// Replace preload.js with loader
+
 const preloadLoader = `try {
   require('bytenode');
   module.exports = require('./preload.jsc');

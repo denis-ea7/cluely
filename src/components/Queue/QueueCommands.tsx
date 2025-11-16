@@ -36,7 +36,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
       return (
         <div className="w-full">
           <div className="text-xs text-white/90 py-1 px-2 flex items-center justify-start gap-4 draggable-area border-b border-white/10">
-            {/* Show/Hide */}
+            {}
             <div className="flex items-center gap-2">
               <span className="text-[11px] leading-none">Show/Hide</span>
               <div className="flex gap-1">
@@ -45,7 +45,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
               </div>
             </div>
 
-            {/* Solve Command */}
+            {}
             {screenshots.length > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] leading-none">Solve</span>
@@ -56,17 +56,17 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
               </div>
             )}
 
-            {/* Chat Button */}
+            {}
             <div className="flex items-center gap-2">
               <button className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1" onClick={onChatToggle} type="button">💬 Chat</button>
             </div>
 
-            {/* Settings Button */}
+            {}
             <div className="flex items-center gap-2">
               <button className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1" onClick={onSettingsToggle} type="button">⚙️ Models</button>
             </div>
 
-            {/* Question mark with tooltip */}
+            {}
             <div className="relative inline-block" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
               <div className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-colors flex items-center justify-center cursor-help z-10">
                 <span className="text-xs text-white/70">?</span>
@@ -76,7 +76,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
                   <div className="p-3 text-xs bg-black/80 backdrop-blur-md rounded-lg border border-white/10 text-white/90 shadow-lg">
                     <div className="space-y-4">
                       <h3 className="font-medium truncate">Keyboard Shortcuts</h3>
-                      {/* content omitted for brevity */}
+                      {}
                     </div>
                   </div>
                 </div>
@@ -88,7 +88,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
               <IoLogOutOutline className="w-4 h-4" />
             </button>
           </div>
-          {/* Audio result now piped into chat via onAudioTranscript; no separate block here */}
+          {}
         </div>
       )
     }

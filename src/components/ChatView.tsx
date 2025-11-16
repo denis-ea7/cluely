@@ -1,36 +1,38 @@
-import React, { useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 
 export const ChatView: React.FC<{
-  transcript: string[]
+  answers: string[]
   onAsk: (text: string) => Promise<string>
   height?: number
   externalAnswer?: string
   onAnswered?: (payload: { question?: string; answer: string; type: "assist" | "custom" }) => void
-}> = ({ transcript, onAsk, height = 260, externalAnswer, onAnswered }) => {
+  onAssistClick?: () => Promise<void>
+}> = ({ answers, onAsk, height = 260, externalAnswer, onAnswered, onAssistClick }) => {
   const [question, setQuestion] = useState("")
-  const [answer, setAnswer] = useState<string>("")
   const [loading, setLoading] = useState(false)
+  const listRef = useRef<HTMLDivElement | null>(null)
 
-  React.useEffect(() => {
-    if (externalAnswer !== undefined) {
-      setAnswer(externalAnswer)
-    }
-  }, [externalAnswer])
+  // Автопрокрутка к низу при обновлении диалога или стрим-ответа
+  useEffect(() => {
+    if (!listRef.current) return
+    listRef.current.scrollTop = listRef.current.scrollHeight
+  }, [answers, externalAnswer])
 
   const askWholeContext = async () => {
     if (loading) return
     setLoading(true)
     try {
-      const ctx = transcript.join("\n")
-      const prompt =
-        "Проанализируй эту стенограмму встречи и дай полезный ответ по всему контексту. " +
-        "Стенограмма:\n" +
-        ctx
-      const result = await onAsk(prompt)
-      setAnswer(result)
-      onAnswered?.({ answer: result, type: "assist" })
+      // Если есть внешний обработчик Assist - используем его
+      if (onAssistClick) {
+        await onAssistClick()
+      } else {
+        // Fallback на старую логику
+        const prompt = "Дай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен."
+        const result = await onAsk(prompt)
+        onAnswered?.({ answer: result, type: "assist" })
+      }
     } catch (e: any) {
-      setAnswer("Ошибка получения ответа: " + (e?.message || String(e)))
+      onAnswered?.({ answer: "Ошибка получения ответа: " + (e?.message || String(e)), type: "assist" })
     } finally {
       setLoading(false)
     }
@@ -40,18 +42,12 @@ export const ChatView: React.FC<{
     if (!question.trim() || loading) return
     setLoading(true)
     try {
-      const ctx = transcript.join("\n")
-      const prompt =
-        "Контекст встречи (стенограмма):\n" +
-        ctx +
-        "\n\nВопрос пользователя:\n" +
-        question
+      const prompt = `Ответь на вопрос пользователя кратко и по делу:\n${question}`
       const result = await onAsk(prompt)
-      setAnswer(result)
       onAnswered?.({ question, answer: result, type: "custom" })
       setQuestion("")
     } catch (e: any) {
-      setAnswer("Ошибка получения ответа: " + (e?.message || String(e)))
+      onAnswered?.({ question, answer: "Ошибка получения ответа: " + (e?.message || String(e)), type: "custom" })
     } finally {
       setLoading(false)
     }
@@ -62,7 +58,7 @@ export const ChatView: React.FC<{
       style={{
         width: 700,
         maxWidth: "92vw",
-        background: "rgba(17,24,39,0.9)",
+        background: "rgba(17,24,39,0.82)",
         color: "#e5e7eb",
         padding: 16,
         borderRadius: 12,
@@ -119,8 +115,9 @@ export const ChatView: React.FC<{
         </button>
       </div>
       <div
+        ref={listRef}
         style={{
-          height,
+          ...(height != null ? { height } : {}),
           overflowY: "auto",
           background: "rgba(0,0,0,0.2)",
           borderRadius: 10,
@@ -128,12 +125,31 @@ export const ChatView: React.FC<{
           border: "1px solid rgba(255,255,255,0.08)"
         }}
       >
-        {!answer ? (
+        {answers.length === 0 ? (
           <div style={{ opacity: 0.6, fontSize: 14 }}>
             Нажмите Assist, чтобы получить ответ по всей встрече, или задайте вопрос.
           </div>
         ) : (
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>{answer}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {answers.map((text, idx) => (
+              <div
+                key={idx}
+                style={{
+                  alignSelf: "flex-start",
+                  maxWidth: "100%",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  whiteSpace: "pre-wrap",
+                  fontSize: 14,
+                  lineHeight: 1.5
+                }}
+              >
+                {"Ассистент: " + text}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
