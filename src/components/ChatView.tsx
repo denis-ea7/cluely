@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react"
 import { Button } from "./ui/button"
 import { Card, CardContent } from "./ui/card"
+import { Input } from "./ui/input"
 import { Sparkles, Send } from "lucide-react"
 import { cn } from "../lib/utils"
 
@@ -56,7 +57,7 @@ export const ChatView: React.FC<{
 
   console.log("[ChatView] Rendering, answers:", answers.length)
   return (
-    <Card className="w-[700px] max-w-[92vw] border-white/10 text-white" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.15)', maxHeight: '600px', display: 'flex', flexDirection: 'column' }}>
+    <Card className="w-[700px] max-w-[92vw] border-white/15 text-white bg-black/40 backdrop-blur-[20px] max-h-[600px] flex flex-col">
       <CardContent className="p-4 space-y-3 flex flex-col flex-1 min-h-0">
         <div className="flex gap-2 flex-shrink-0">
           <Button
@@ -68,12 +69,12 @@ export const ChatView: React.FC<{
             <Sparkles className="h-4 w-4 mr-2" />
             Assist
           </Button>
-          <input
+          <Input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && askCustom()}
             placeholder="Спросить по контексту…"
-            className="flex-1 bg-white/5 border border-white/10 text-white rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-white/20"
+            className="flex-1 bg-white/5 border-white/10 text-white placeholder:text-white/50 focus-visible:ring-white/20"
           />
           <Button
             onClick={askCustom}
@@ -86,8 +87,7 @@ export const ChatView: React.FC<{
         </div>
         <div
           ref={listRef}
-          className="overflow-y-auto bg-black/20 rounded-lg p-3 border border-white/5 flex-1 min-h-0"
-          style={{ maxHeight: '450px' }}
+          className="overflow-y-auto bg-black/20 rounded-lg p-3 border border-white/5 flex-1 min-h-0 max-h-[450px]"
         >
           {answers.length === 0 ? (
             <div className="text-white/60 text-sm">

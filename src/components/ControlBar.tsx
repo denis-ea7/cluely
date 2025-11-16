@@ -34,21 +34,10 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   console.log("[ControlBar] Rendering, recording:", recording, "tab:", tab)
   return (
     <div 
-      className="fixed left-1/2 top-4 -translate-x-1/2 z-[9999] flex flex-col gap-2" 
-      style={{ 
-        backgroundColor: 'rgba(0,0,0,0.4)', 
-        backdropFilter: 'blur(20px)',
-        minWidth: '400px',
-        padding: '8px'
-      }}
+      className="fixed left-1/2 top-4 -translate-x-1/2 z-[9999] flex flex-col gap-2 bg-black/40 backdrop-blur-[20px] min-w-[400px] p-2" 
     >
       <div 
-        className="flex items-center gap-2 rounded-lg px-3 py-2 border shadow-lg"
-        style={{
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          borderColor: 'rgba(255,255,255,0.15)',
-          backdropFilter: 'blur(20px)'
-        }}
+        className="flex items-center gap-2 rounded-lg px-3 py-2 border border-white/15 shadow-lg bg-black/50 backdrop-blur-[20px]"
       >
         {/* Drag handle */}
         <div className="draggable-area cursor-move flex items-center pr-2">
