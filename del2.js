@@ -1,5 +1,5 @@
-// realtime_auto_stream.js
-// транскрипция по WebSocket + автоотправка текста в GPT каждые 5 секунд
+
+
 
 const WebSocket = require("ws");
 const Mic = require("mic");
@@ -15,7 +15,7 @@ let lastText = "";
 let lastSent = "";
 let timer;
 
-// === функция стрима ответа GPT ===
+
 function streamChatAnswer(text) {
   return new Promise((resolve) => {
     const payload = JSON.stringify({
@@ -62,7 +62,7 @@ function streamChatAnswer(text) {
   });
 }
 
-// === микрофон ===
+
 function startMic(sendChunk) {
   mic = Mic({
     rate: "16000",
@@ -78,7 +78,7 @@ function startMic(sendChunk) {
   console.log("🎙️ Микрофон запущен.");
 }
 
-// === websocket ===
+
 const ws = new WebSocket(WS_URL, {
   headers: { Authorization: `Bearer ${TOKEN}` },
 });
@@ -99,7 +99,7 @@ ws.on("open", () => {
     if (ws.readyState === WebSocket.OPEN) ws.send(chunk);
   });
 
-  // каждые 5 сек отправлять последний текст, если он изменился
+  
   timer = setInterval(async () => {
     if (lastText && lastText !== lastSent) {
       lastSent = lastText;

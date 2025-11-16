@@ -210,6 +210,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("transcription-error", subscription)
     return () => ipcRenderer.removeListener("transcription-error", subscription)
   },
+  
+  startChatStream: (message: string) => ipcRenderer.invoke("chat-stream-start", message),
+  onChatDelta: (callback: (data: { delta: string }) => void) => {
+    const subscription = (_: any, data: { delta: string }) => callback(data)
+    ipcRenderer.on("chat-stream-delta", subscription)
+    return () => ipcRenderer.removeListener("chat-stream-delta", subscription)
+  },
+  onChatComplete: (callback: (data: { text: string }) => void) => {
+    const subscription = (_: any, data: { text: string }) => callback(data)
+    ipcRenderer.on("chat-stream-complete", subscription)
+    return () => ipcRenderer.removeListener("chat-stream-complete", subscription)
+  },
   analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
   quitApp: () => ipcRenderer.invoke("quit-app"),
   

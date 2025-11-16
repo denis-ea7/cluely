@@ -12,7 +12,7 @@ import {
   ToastVariant,
   ToastMessage
 } from "../components/ui/toast"
-import QueueCommands from "../components/Queue/QueueCommands"
+// import QueueCommands from "../components/Queue/QueueCommands"
 import ModelSelector from "../components/ui/ModelSelector"
 
 interface QueueProps {
@@ -117,7 +117,7 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
     }
   }
 
-  // Load current model configuration on mount
+  
   useEffect(() => {
     const loadCurrentModel = async () => {
       try {
@@ -178,19 +178,19 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
     }
   }, [isTooltipVisible, tooltipHeight])
 
-  // Seamless screenshot-to-LLM flow
+  
   useEffect(() => {
-    // Listen for screenshot taken event
+    
     const unsubscribe = window.electronAPI.onScreenshotTaken(async (data) => {
-      // Refetch screenshots to update the queue
+      
       await refetch();
-      // Show loading in chat
+      
       setChatLoading(true);
       try {
-        // Get the latest screenshot path
+        
         const latest = data?.path || (Array.isArray(data) && data.length > 0 && data[data.length - 1]?.path);
         if (latest) {
-          // Call the LLM to process the screenshot
+          
           const response = await window.electronAPI.invoke("analyze-image-file", latest);
           setChatMessages((msgs) => [...msgs, { role: "gemini", text: response.text }]);
         }
@@ -220,7 +220,7 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
 
   const handleModelChange = (provider: "ollama" | "gemini", model: string) => {
     setCurrentModel({ provider, model })
-    // Update chat messages to reflect the model change
+    
     const modelName = provider === "ollama" ? model : "Gemini 2.0 Flash"
     setChatMessages((msgs) => [...msgs, { 
       role: "gemini", 
@@ -250,7 +250,7 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
             <ToastTitle>{toastMessage.title}</ToastTitle>
             <ToastDescription>{toastMessage.description}</ToastDescription>
           </Toast>
-          {/* Monolithic block: header + settings + chat */}
+          {}
           <div className="w-full mx-auto liquid-glass-dark rounded-xl border border-gray-700/50 overflow-hidden">
             <QueueCommands
               screenshots={screenshots}
@@ -258,7 +258,7 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
               onChatToggle={handleChatToggle}
               onSettingsToggle={handleSettingsToggle}
             />
-            {/* Settings */}
+            {}
             {isSettingsOpen && (
               <div className="px-3 py-2 border-b border-white/10">
                 <ModelSelector onModelChange={handleModelChange} onChatOpen={() => setIsChatOpen(true)} />
@@ -268,7 +268,7 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
                 </div>
               </div>
             )}
-            {/* Chat */}
+            {}
             {isChatOpen && (
               <div className="px-3 py-3">
               <div className="flex-1 overflow-y-auto mb-2 p-3 rounded-lg bg-black/40 backdrop-blur-md min-h-[120px] glass-content border border-gray-700/50 shadow-lg" style={{ maxHeight: '70vh' }}>
@@ -385,7 +385,7 @@ const Queue: React.FC<QueueProps> = ({ setView, onTranscriptUpdate }) => {
                 </div>
               )}
             </div>
-            {/* Chat toolbar */}
+            {}
             <div className="flex justify-between items-center mb-2 text-[11px]">
               <div className="flex gap-2">
                 <button

@@ -189,7 +189,7 @@ export class WindowHelper {
     } else {
       console.log("[WindowHelper] DevTools available but not auto-opening (set AUTO_OPEN_DEVTOOLS=true to enable)")
     }
-    this.mainWindow.setContentProtection(true)
+    this.mainWindow.setContentProtection(false)
 
     if (process.platform === "darwin") {
       this.mainWindow.setVisibleOnAllWorkspaces(true, {

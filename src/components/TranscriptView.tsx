@@ -3,15 +3,15 @@ import React from "react"
 export const TranscriptView: React.FC<{
   lines: string[]
   height?: number
-}> = ({ lines, height = 260 }) => {
+}> = ({ lines, height }) => {
   return (
     <div
       style={{
         width: 700,
         maxWidth: "92vw",
-        height,
+        ...(height != null ? { height } : {}),
         overflowY: "auto",
-        background: "rgba(17,24,39,0.9)",
+        background: "rgba(17,24,39,0.82)",
         color: "#e5e7eb",
         padding: 16,
         borderRadius: 12,

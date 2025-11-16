@@ -49,7 +49,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
       const models = await window.electronAPI.getAvailableOllamaModels();
       setAvailableOllamaModels(models);
       
-      // Auto-select first model if none selected
+      
       if (models.length > 0 && !selectedOllamaModel) {
         setSelectedOllamaModel(models[0]);
       }
@@ -88,7 +88,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
         await loadCurrentConfig();
         setConnectionStatus('success');
         onModelChange?.(selectedProvider, selectedProvider === 'ollama' ? selectedOllamaModel : 'gemini-2.0-flash');
-        // Auto-open chat window after successful model change
+        
         setTimeout(() => {
           onChatOpen?.();
         }, 500);
@@ -137,14 +137,14 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
         </div>
       </div>
 
-      {/* Current Status */}
+      {}
       {currentConfig && (
         <div className="text-xs text-gray-300 bg-black/40 p-2 rounded border border-gray-700/50">
           Current: {currentConfig.provider === 'ollama' ? '🏠' : '☁️'} {currentConfig.model}
         </div>
       )}
 
-      {/* Provider Selection */}
+      {}
       <div className="space-y-2">
         <label className="text-xs font-medium text-gray-300">Provider</label>
         <div className="flex gap-2">
@@ -171,7 +171,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
         </div>
       </div>
 
-      {/* Provider-specific settings */}
+      {}
       {selectedProvider === 'gemini' ? (
         <div className="space-y-2">
           <label className="text-xs font-medium text-gray-300">Gemini API Key (optional if already set)</label>
@@ -228,7 +228,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
         </div>
       )}
 
-      {/* Action buttons */}
+      {}
       <div className="flex gap-2 pt-2">
         <button
           onClick={handleProviderSwitch}
@@ -247,7 +247,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
         </button>
       </div>
 
-      {/* Help text */}
+      {}
       <div className="text-xs text-gray-300 space-y-1">
         <div>💡 <strong>Gemini:</strong> Fast, cloud-based, requires API key</div>
         <div>💡 <strong>Ollama:</strong> Private, local, requires Ollama installation</div>

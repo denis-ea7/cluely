@@ -2,7 +2,7 @@ export interface Screenshot {
   id: string
   path: string
   timestamp: number
-  thumbnail: string // Base64 thumbnail
+  thumbnail: string 
 }
 
 export interface Solution {

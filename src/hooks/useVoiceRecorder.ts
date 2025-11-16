@@ -55,7 +55,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         localStorage.removeItem(STORAGE_KEY)
       }
     } catch {
-      // ignore
+      
     }
   }, [])
 
@@ -74,6 +74,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
 
   const resetStream = useCallback(() => {
     if (vadIntervalRef.current) {
+      console.log("[VoiceRecorder] resetStream: clearing vadInterval")
       window.clearInterval(vadIntervalRef.current)
       vadIntervalRef.current = null
     }
@@ -89,7 +90,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       try {
         audioContextRef.current.close()
       } catch {
-        // ignore
+        
       }
       audioContextRef.current = null
     }
@@ -101,7 +102,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       transcriptionCleanupRef.current()
       transcriptionCleanupRef.current = null
     }
-    // Останавливаем стрим транскрипции
+    
     if ((window as any)?.electronAPI?.stopTranscriptionStream) {
       ;(window as any).electronAPI.stopTranscriptionStream().catch(() => {})
     }
@@ -110,10 +111,10 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     setInputLevel(0)
   }, [])
 
-  // Функция для конвертации Float32 в PCM16 и отправки чанка (как в del2.js)
+  
   const sendPcmChunk = useCallback(async (audioData: Float32Array, sampleRate: number) => {
     try {
-      // Resample to 16k
+      
       const dstRate = 16000
       const ratio = sampleRate / dstRate
       const outLen = Math.max(1, Math.floor(audioData.length / ratio))
@@ -125,13 +126,13 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         const t = s - i0
         resampled[i] = audioData[i0] * (1 - t) + audioData[i1] * t
       }
-      // Float32 -> PCM16
+      
       const pcm = new Int16Array(resampled.length)
       for (let i = 0; i < resampled.length; i++) {
         const x = Math.max(-1, Math.min(1, resampled[i]))
         pcm[i] = x < 0 ? x * 0x8000 : x * 0x7fff
       }
-      // Encode to base64
+      
       const bytes = new Uint8Array(pcm.buffer)
       let binary = ""
       const CHUNK = 0x8000
@@ -139,7 +140,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[])
       }
       const base64 = btoa(binary)
-      // Отправляем чанк через IPC (как в del2.js)
+      
       if ((window as any)?.electronAPI?.sendTranscriptionChunk) {
         await (window as any).electronAPI.sendTranscriptionChunk(base64)
       }
@@ -153,7 +154,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
-      // ignore — user may deny permission
+      
     }
     try {
       const list = await navigator.mediaDevices.enumerateDevices()
@@ -240,11 +241,11 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       mediaStreamRef.current = stream
       recordingActiveRef.current = true
       setIsRecording(true)
-      // Setup audio context for level meter
+      
       try {
         const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined
         if (AudioCtx) {
-          // Сразу просим 16 кГц, чтобы минимизировать ресемплинг и задержки
+          
           const ctx = new AudioCtx({ sampleRate: 16000 } as any)
           audioContextRef.current = ctx
           const source = ctx.createMediaStreamSource(stream)
@@ -252,13 +253,13 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
           analyser.fftSize = 512
           source.connect(analyser)
           analyserRef.current = analyser
-          // Create processor to send PCM chunks in real-time (как в del2.js)
+          
           const bufferSize = 4096
           const processor = ctx.createScriptProcessor(bufferSize, 1, 1)
           processor.onaudioprocess = (e: AudioProcessingEvent) => {
             if (!recordingActiveRef.current) return
             const ch0 = e.inputBuffer.getChannelData(0)
-            // Convert to mono if needed
+            
             let mono: Float32Array
             if (e.inputBuffer.numberOfChannels > 1) {
               const ch1 = e.inputBuffer.getChannelData(1)
@@ -269,13 +270,13 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
             } else {
               mono = new Float32Array(ch0)
             }
-            // Отправляем чанк в реальном времени
+            
             sendPcmChunk(mono, ctx.sampleRate).catch((err) => {
               console.error("[VoiceRecorder] sendPcmChunk failed:", err)
             })
           }
           source.connect(processor)
-          processor.connect(ctx.destination) // keep node alive
+          processor.connect(ctx.destination) 
           processorRef.current = processor as any
           startLevelTracking()
         }
@@ -284,10 +285,10 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       }
       vadStateRef.current = createInitialVadState()
       
-      // Запускаем стрим транскрипции (как в del2.js)
+      
       if ((window as any)?.electronAPI?.startTranscriptionStream) {
         await (window as any).electronAPI.startTranscriptionStream()
-        // Подписываемся на interim тексты
+        
         if ((window as any)?.electronAPI?.onTranscriptionInterim) {
           const cleanup = (window as any).electronAPI.onTranscriptionInterim((data: { text: string }) => {
             if (data?.text) {
@@ -296,7 +297,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
           })
           transcriptionCleanupRef.current = cleanup
         }
-        // Подписываемся на ошибки
+        
         if ((window as any)?.electronAPI?.onTranscriptionError) {
           (window as any).electronAPI.onTranscriptionError((data: { error: string }) => {
             console.error("[VoiceRecorder] transcription error:", data.error)
@@ -311,7 +312,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         if (silentStart && lastVoice > recordingStart) {
           const silentDuration = Date.now() - silentStart
           const recordingDuration = Date.now() - recordingStart
-          // VAD для определения пауз (не останавливаем запись, только отслеживаем)
+          
           if (silentDuration > 1500 && recordingDuration > 300) {
             vadStateRef.current.silentStart = 0
           }

@@ -26,7 +26,7 @@ export class LLMHelper {
     
     if (useOllama) {
       this.ollamaUrl = ollamaUrl || "http://localhost:11434"
-      this.ollamaModel = ollamaModel || "gemma:latest" // Default fallback
+      this.ollamaModel = ollamaModel || "gemma:latest" 
       console.log(`[LLMHelper] Using Ollama with model: ${this.ollamaModel}`)
       
       this.initializeOllamaModel()
@@ -146,7 +146,7 @@ export class LLMHelper {
         } else if (this.geminiKeys.length > 1 && this.shouldRotateOnError(err)) {
           continue
         }
-        // For other errors, break
+        
         break
       }
     }
@@ -476,6 +476,20 @@ export class LLMHelper {
     return this.chatWithGemini(message);
   }
 
+  public async chatStream(message: string, onDelta: (delta: string) => void): Promise<string> {
+    if (this.primary) {
+      try {
+        return await this.primary.chatStream(message, onDelta)
+      } catch (e) {
+        console.warn("[LLMHelper] PrimaryAI chatStream failed:", (e as any)?.message || e)
+      }
+    }
+    
+    const full = await this.chatWithGemini(message)
+    try { onDelta(full) } catch {}
+    return full
+  }
+
   public isUsingOllama(): boolean {
     return this.useOllama;
   }
@@ -547,7 +561,7 @@ export class LLMHelper {
         }
         const result = await this.withGeminiRetry(m => m.generateContent("Hello"));
         const response = await result.response;
-        const text = response.text(); // Ensure the response is valid
+        const text = response.text(); 
         if (text) {
           return { success: true };
         } else {

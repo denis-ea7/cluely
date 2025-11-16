@@ -1,4 +1,4 @@
-// Debug.tsx
+
 import React, { useState, useEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "react-query"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
@@ -41,32 +41,32 @@ const CodeComparisonSection = ({
   const computeDiff = () => {
     if (!oldCode || !newCode) return { leftLines: [], rightLines: [] }
 
-    // Normalize line endings and clean up the code
+    
     const normalizeCode = (code: string) => {
       return code
-        .replace(/\r\n/g, "\n") // Convert Windows line endings to Unix
-        .replace(/\r/g, "\n") // Convert remaining carriage returns
-        .trim() // Remove leading/trailing whitespace
+        .replace(/\r\n/g, "\n") 
+        .replace(/\r/g, "\n") 
+        .trim() 
     }
 
     const normalizedOldCode = normalizeCode(oldCode)
     const normalizedNewCode = normalizeCode(newCode)
 
-    // Generate the diff
+    
     const diff = diffLines(normalizedOldCode, normalizedNewCode, {
       newlineIsToken: true,
-      ignoreWhitespace: true // Changed to true to better handle whitespace differences
+      ignoreWhitespace: true 
     })
 
-    // Process the diff to create parallel arrays
+    
     const leftLines: DiffLine[] = []
     const rightLines: DiffLine[] = []
 
     diff.forEach((part) => {
       if (part.added) {
-        // Add empty lines to left side
+        
         leftLines.push(...Array(part.count || 0).fill({ value: "" }))
-        // Add new lines to right side, filter out empty lines at the end
+        
         rightLines.push(
           ...part.value
             .split("\n")
@@ -77,7 +77,7 @@ const CodeComparisonSection = ({
             }))
         )
       } else if (part.removed) {
-        // Add removed lines to left side, filter out empty lines at the end
+        
         leftLines.push(
           ...part.value
             .split("\n")
@@ -87,10 +87,10 @@ const CodeComparisonSection = ({
               removed: true
             }))
         )
-        // Add empty lines to right side
+        
         rightLines.push(...Array(part.count || 0).fill({ value: "" }))
       } else {
-        // Add unchanged lines to both sides
+        
         const lines = part.value.split("\n").filter((line) => line.length > 0)
         leftLines.push(...lines.map((line) => ({ value: line })))
         rightLines.push(...lines.map((line) => ({ value: line })))
@@ -117,7 +117,7 @@ const CodeComparisonSection = ({
         </div>
       ) : (
         <div className="flex flex-row gap-0.5 bg-[#161b22] rounded-lg overflow-hidden">
-          {/* Previous Code */}
+          {}
           <div className="w-1/2 border-r border-gray-700">
             <div className="bg-[#2d333b] px-3 py-1.5">
               <h3 className="text-[11px] font-medium text-gray-200">
@@ -154,7 +154,7 @@ const CodeComparisonSection = ({
             </div>
           </div>
 
-          {/* New Code */}
+          {}
           <div className="w-1/2">
             <div className="bg-[#2d333b] px-3 py-1.5">
               <h3 className="text-[11px] font-medium text-gray-200">
@@ -268,7 +268,7 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
   }
 
   useEffect(() => {
-    // Try to get the new solution data from cache first
+    
     const newSolution = queryClient.getQueryData(["new_solution"]) as {
       old_code: string
       new_code: string
@@ -277,7 +277,7 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
       space_complexity: string
     } | null
 
-    // If we have cached data, set all state variables to the cached data
+    
     if (newSolution) {
       setOldCode(newSolution.old_code || null)
       setNewCode(newSolution.new_code || null)
@@ -287,12 +287,12 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
       setIsProcessing(false)
     }
 
-    // Set up event listeners
+    
     const cleanupFunctions = [
       window.electronAPI.onScreenshotTaken(() => refetch()),
       window.electronAPI.onResetView(() => refetch()),
       window.electronAPI.onDebugSuccess(() => {
-        setIsProcessing(false) //all the other stuff ahapepns in the parent component, so we just need to do this.
+        setIsProcessing(false) 
       }),
       window.electronAPI.onDebugStart(() => {
         setIsProcessing(true)
@@ -308,7 +308,7 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
       })
     ]
 
-    // Set up resize observer
+    
     const updateDimensions = () => {
       if (contentRef.current) {
         let contentHeight = contentRef.current.scrollHeight
@@ -352,7 +352,7 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
         <ToastDescription>{toastMessage.description}</ToastDescription>
       </Toast>
 
-      {/* Conditionally render the screenshot queue */}
+      {}
       <div className="bg-transparent w-fit">
         <div className="pb-3">
           <div className="space-y-3 w-fit">
@@ -365,17 +365,17 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
         </div>
       </div>
 
-      {/* Navbar of commands with the tooltip */}
+      {}
       <ExtraScreenshotsQueueHelper
         extraScreenshots={extraScreenshots}
         onTooltipVisibilityChange={handleTooltipVisibilityChange}
       />
 
-      {/* Main Content */}
+      {}
       <div className="w-full text-sm text-black bg-black/60 rounded-md">
         <div className="rounded-lg overflow-hidden">
           <div className="px-4 py-3 space-y-4">
-            {/* Thoughts Section */}
+            {}
             <ContentSection
               title="What I Changed"
               content={
@@ -395,14 +395,14 @@ const Debug: React.FC<DebugProps> = ({ isProcessing, setIsProcessing }) => {
               isLoading={!thoughtsData}
             />
 
-            {/* Code Comparison Section */}
+            {}
             <CodeComparisonSection
               oldCode={oldCode}
               newCode={newCode}
               isLoading={!oldCode || !newCode}
             />
 
-            {/* Complexity Section */}
+            {}
             <ComplexitySection
               timeComplexity={timeComplexityData}
               spaceComplexity={spaceComplexityData}
