@@ -1,6 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
+import { Button } from "./ui/button"
+import { Separator } from "./ui/separator"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
+import { useQueryClient } from "react-query"
 
 interface ProfileSettingsProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   voiceDevices: Array<{ deviceId: string; label: string }>
   selectedDeviceId: string
   onSelectDevice: (id: string) => void
@@ -8,6 +16,8 @@ interface ProfileSettingsProps {
 }
 
 export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
+  open,
+  onOpenChange,
   voiceDevices,
   selectedDeviceId,
   onSelectDevice,
@@ -15,8 +25,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
 }) => {
   const [token, setToken] = useState<string | null>(null)
   const [premium, setPremium] = useState<{ isPremium: boolean; premiumUntil: string | null } | null>(null)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
+    if (!open) return
     ;(async () => {
       try {
         const t = await (window as any).electronAPI.getToken?.()
@@ -27,136 +39,115 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         if (info) setPremium({ isPremium: !!info.isPremium, premiumUntil: info.premiumUntil })
       } catch {}
     })()
-  }, [])
+  }, [open])
 
-  const microphoneOptions = useMemo(() => {
-    if (!voiceDevices.length) {
-      return [{ deviceId: "", label: "Стандартный микрофон" }]
+  const handleLogout = async () => {
+    if (confirm("Вы уверены, что хотите выйти?")) {
+      try {
+        await (
+          (window as any).electronAPI.clearToken?.() ||
+          (window as any).electronAPI.invoke("clear-token")
+        )
+        queryClient.setQueryData(["auth_token"], null)
+        setToken(null)
+        console.log("[ProfileSettings] Token cleared")
+      } catch (e) {
+        console.error("[ProfileSettings] Error clearing token:", e)
+      }
     }
-    return voiceDevices.map((device, index) => ({
-      deviceId: device.deviceId || `device-${index}`,
-      label: device.label || `Микрофон ${index + 1}`
-    }))
-  }, [voiceDevices])
+  }
+
+  const microphoneOptions = voiceDevices.length
+    ? voiceDevices.map((device, index) => ({
+        deviceId: device.deviceId || `device-${index}`,
+        label: device.label || `Микрофон ${index + 1}`
+      }))
+    : [{ deviceId: "", label: "Стандартный микрофон" }]
 
   return (
-    <div
-      style={{
-        width: 780,
-        maxWidth: "94vw",
-        background: "rgba(17,24,39,0.95)",
-        color: "#e5e7eb",
-        borderRadius: 14,
-        padding: 20,
-        border: "1px solid rgba(255,255,255,0.12)",
-        boxShadow: "0 14px 34px rgba(0,0,0,0.5)",
-        margin: "60px auto"
-      }}
-    >
-      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 12 }}>Профиль и настройки</div>
-      <div style={{ display: "grid", gap: 12 }}>
-        <div
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            padding: 12,
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.12)"
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Статус</div>
-          <div style={{ fontSize: 13, opacity: 0.9 }}>
-            {token ? (
-              <span>Авторизован • токен {token.substring(0, 16)}…</span>
-            ) : (
-              <span>Не авторизован</span>
-            )}
-          </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px] bg-black/80 backdrop-blur-md border-white/10">
+        <DialogHeader>
+          <DialogTitle className="text-white">Профиль и настройки</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          <Card className="bg-white/5 border-white/10">
+            <CardHeader>
+              <CardTitle className="text-white text-sm">Статус</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="text-white/70">
+                {token ? (
+                  <span>Авторизован • токен {token.substring(0, 16)}…</span>
+                ) : (
+                  <span>Не авторизован</span>
+                )}
+              </CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white/5 border-white/10">
+            <CardHeader>
+              <CardTitle className="text-white text-sm">Подписка</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CardDescription className="text-white/70 mb-4">
+                {premium?.isPremium ? (
+                  <span>Премиум до: {premium.premiumUntil || "—"}</span>
+                ) : (
+                  <span>Free</span>
+                )}
+              </CardDescription>
+              {!premium?.isPremium && (
+                <Button
+                  onClick={() => (window as any).electronAPI.openPremiumPurchase?.()}
+                  className="bg-amber-600 hover:bg-amber-700 text-black"
+                >
+                  Купить премиум
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white/5 border-white/10">
+            <CardHeader>
+              <CardTitle className="text-white text-sm">Микрофон</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-2">
+                <Select value={selectedDeviceId} onValueChange={onSelectDevice}>
+                  <SelectTrigger className="bg-black/20 border-white/10 text-white flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-black/90 border-white/10">
+                    {microphoneOptions.map((option) => (
+                      <SelectItem
+                        key={option.deviceId || option.label}
+                        value={option.deviceId}
+                        className="text-white"
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={onRefreshDevices}
+                  className="border-white/10 text-white hover:bg-white/10"
+                >
+                  ↻
+                </Button>
+              </div>
+              <CardDescription className="text-white/50 text-xs mt-2">
+                Выберите устройство, которое будет использоваться для записи голоса.
+              </CardDescription>
+            </CardContent>
+          </Card>
         </div>
-        <div
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            padding: 12,
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.12)"
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Подписка</div>
-          <div style={{ fontSize: 13, opacity: 0.9 }}>
-            {premium?.isPremium ? (
-              <span>Премиум до: {premium.premiumUntil || "—"}</span>
-            ) : (
-              <span>Free</span>
-            )}
-          </div>
-          {!premium?.isPremium && (
-            <div style={{ marginTop: 8 }}>
-              <button
-                onClick={() => (window as any).electronAPI.openPremiumPurchase?.()}
-                style={{
-                  background: "#f59e0b",
-                  color: "#000",
-                  border: "none",
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  fontWeight: 700
-                }}
-              >
-                Купить премиум
-              </button>
-            </div>
-          )}
-        </div>
-        <div
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            padding: 12,
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.12)"
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>Микрофон</div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <select
-              value={selectedDeviceId}
-              onChange={(e) => onSelectDevice(e.target.value)}
-              style={{
-                background: "rgba(0,0,0,0.25)",
-                color: "#fff",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.2)",
-                padding: "8px 10px",
-                flex: 1,
-                fontSize: 13
-              }}
-            >
-              {microphoneOptions.map((option) => (
-                <option key={option.deviceId || option.label} value={option.deviceId}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={onRefreshDevices}
-              style={{
-                background: "rgba(255,255,255,0.12)",
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 12px",
-                cursor: "pointer",
-                fontWeight: 600
-              }}
-            >
-              ↻
-            </button>
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-            Выберите устройство, которое будет использоваться для записи голоса.
-          </div>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
-
