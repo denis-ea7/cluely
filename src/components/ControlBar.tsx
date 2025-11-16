@@ -1,4 +1,8 @@
 import React from "react"
+import { Button } from "./ui/button"
+import { Separator } from "./ui/separator"
+import { GripVertical, X, Home, Play, Pause, Square } from "lucide-react"
+import { cn } from "../lib/utils"
 
 type Tab = "chat" | "transcript"
 
@@ -12,6 +16,7 @@ export interface ControlBarProps {
   onToggleRecording: () => void
   recording: boolean
   inputLevel: number
+  onClose?: () => void
 }
 
 export const ControlBar: React.FC<ControlBarProps> = ({
@@ -23,154 +28,128 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onHome,
   onToggleRecording,
   recording,
-  inputLevel
+  inputLevel,
+  onClose
 }) => {
+  console.log("[ControlBar] Rendering, recording:", recording, "tab:", tab)
   return (
-    <div
-      style={{
-        position: "fixed",
-        left: "50%",
-        top: 90,
-        transform: "translateX(-50%)",
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        gap: 10
+    <div 
+      className="fixed left-1/2 top-4 -translate-x-1/2 z-[9999] flex flex-col gap-2" 
+      style={{ 
+        backgroundColor: 'rgba(0,0,0,0.4)', 
+        backdropFilter: 'blur(20px)',
+        minWidth: '400px',
+        padding: '8px'
       }}
     >
-      <div
+      <div 
+        className="flex items-center gap-2 rounded-lg px-3 py-2 border shadow-lg"
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          background: "rgba(31,41,55,0.95)",
-          color: "#fff",
-          padding: "8px 10px",
-          borderRadius: 14,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-          border: "1px solid rgba(255,255,255,0.12)"
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          borderColor: 'rgba(255,255,255,0.15)',
+          backdropFilter: 'blur(20px)'
         }}
       >
-        <button
-          title="Home"
+        {/* Drag handle */}
+        <div className="draggable-area cursor-move flex items-center pr-2">
+          <GripVertical className="h-4 w-4 text-white/60" />
+        </div>
+        
+        <Separator orientation="vertical" className="h-5 bg-white/20" />
+        
+        {/* Home button */}
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onHome}
-          style={{
-            background: "transparent",
-            color: "#fff",
-            border: "none",
-            padding: "6px 10px",
-            borderRadius: 10,
-            cursor: "pointer"
-          }}
+          className="h-8 w-8 text-white hover:bg-white/10"
         >
-          🏠
-        </button>
-        <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.1)" }} />
-        <button
-          onClick={onToggleRecording}
-          style={{
-            background: recording ? "#dc2626" : "transparent",
-            color: "#fff",
-            border: "none",
-            padding: "6px 12px",
-            borderRadius: 10,
-            cursor: "pointer",
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            boxShadow: recording ? "0 0 12px rgba(220,38,38,0.45)" : "none",
-            transition: "all 0.2s ease"
-          }}
-          title={recording ? "Остановить запись" : "Начать запись голоса"}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center" }}>{recording ? "● REC" : "🎤 Record"}</span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 60,
-              height: 6,
-              borderRadius: 4,
-              background: "rgba(255,255,255,0.15)",
-              overflow: "hidden"
-            }}
+          <Home className="h-4 w-4" />
+        </Button>
+        
+        <Separator orientation="vertical" className="h-5 bg-white/20" />
+        
+        {/* Start Listening / Pause / Stop buttons */}
+        {!recording ? (
+          <Button
+            onClick={onToggleRecording}
+            className="bg-blue-600 hover:bg-blue-700 text-white h-8 px-4"
           >
-            <span
-              style={{
-                display: "block",
-                width: `${Math.min(100, Math.round(inputLevel * 140))}%`,
-                height: "100%",
-                background: recording ? "#f97316" : "#6b7280",
-                transition: "width 0.15s ease"
-              }}
-            />
-          </span>
-        </button>
-        <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.1)" }} />
-        <button
+            <Play className="h-4 w-4 mr-2" />
+            Start Listening
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onPauseToggle}
+              className="h-8 px-3 text-white hover:bg-white/10"
+            >
+              {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={onStop}
+              className="h-8 px-3"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+        
+        {/* Input level indicator */}
+        {recording && (
+          <>
+            <Separator orientation="vertical" className="h-5 bg-white/20" />
+            <div className="w-16 h-2 bg-white/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-orange-500 transition-all duration-150"
+                style={{ width: `${Math.min(100, Math.round(inputLevel * 140))}%` }}
+              />
+            </div>
+          </>
+        )}
+        
+        <Separator orientation="vertical" className="h-5 bg-white/20" />
+        
+        {/* Tabs */}
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => onTabChange("chat")}
-          style={{
-            background: tab === "chat" ? "rgba(255,255,255,0.12)" : "transparent",
-            color: "#fff",
-            border: "none",
-            padding: "6px 10px",
-            borderRadius: 10,
-            cursor: "pointer",
-            fontWeight: 600
-          }}
+          className={cn(
+            "h-8 px-3 text-white hover:bg-white/10",
+            tab === "chat" ? "bg-white/10" : ""
+          )}
         >
           Chat
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => onTabChange("transcript")}
-          style={{
-            background: tab === "transcript" ? "rgba(255,255,255,0.12)" : "transparent",
-            color: "#fff",
-            border: "none",
-            padding: "6px 10px",
-            borderRadius: 10,
-            cursor: "pointer",
-            fontWeight: 600
-          }}
+          className={cn(
+            "h-8 px-3 text-white hover:bg-white/10",
+            tab === "transcript" ? "bg-white/10" : ""
+          )}
         >
           Transcript
-        </button>
-        <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.1)" }} />
-        <button
-          title={paused ? "Resume" : "Pause"}
-          onClick={onPauseToggle}
-          style={{
-            background: "transparent",
-            color: "#fff",
-            border: "none",
-            padding: "6px 10px",
-            borderRadius: 10,
-            cursor: "pointer",
-            fontWeight: 600
-          }}
+        </Button>
+        
+        <Separator orientation="vertical" className="h-5 bg-white/20" />
+        
+        {/* Close button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          className="h-8 w-8 text-white hover:bg-white/10"
         >
-          {paused ? "▶︎" : "⏸"}
-        </button>
-        <button
-          title="Stop"
-          onClick={onStop}
-          style={{
-            background: "#ef4444",
-            color: "#fff",
-            border: "none",
-            padding: "6px 12px",
-            borderRadius: 10,
-            cursor: "pointer",
-            fontWeight: 700,
-            marginLeft: 2
-          }}
-        >
-          ⏹ Stop
-        </button>
+          <X className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   )
 }
-
-
-

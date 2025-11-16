@@ -4,13 +4,13 @@ import { ToastViewport } from "@radix-ui/react-toast"
 import { useCallback, useEffect, useRef, useState } from "react"
 import Solutions from "./_pages/Solutions"
 import { useQuery, useQueryClient } from "react-query"
-import { PremiumModal } from "./components/PremiumModal"
 import { ControlBar } from "./components/ControlBar"
 import { TranscriptView } from "./components/TranscriptView"
 import { ChatView } from "./components/ChatView"
-import { SummaryOverlay } from "./components/SummaryOverlay"
 import { ProfileSettings } from "./components/ProfileSettings"
 import { useVoiceRecorder } from "./hooks/useVoiceRecorder"
+import { cn } from "./lib/utils"
+import { Button } from "./components/ui/button"
 
 declare global {
   interface Window {
@@ -77,6 +77,9 @@ declare global {
       openPremiumPurchase: () => Promise<{ success: boolean }>
       refreshPremiumInfo: () => Promise<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }>
       onPremiumStatusUpdated: (callback: (info: { isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }) => void) => () => void
+      startChatStream: (message: string) => Promise<void>
+      onChatDelta: (callback: (data: { delta: string }) => void) => () => void
+      onChatComplete: (callback: (data: { text: string }) => void) => () => void
     }
   }
 }
@@ -90,6 +93,7 @@ const normalizeQuestion = (s: string) =>
     .trim()
 
 const App: React.FC = () => {
+  console.log("[App] render start")
   const [view, setView] = useState<"queue" | "solutions" | "debug">("queue")
   const containerRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
@@ -401,6 +405,16 @@ const App: React.FC = () => {
       .join("\n")
   }, [])
 
+  // Получить последние N сообщений для контекста (чтобы промпт не был слишком длинным)
+  const getRecentContext = useCallback((maxMessages: number = 10) => {
+    if (!conversationRef.current.length) return ""
+    // Берем последние maxMessages сообщений (5 пар вопрос-ответ)
+    const recent = conversationRef.current.slice(-maxMessages)
+    return recent
+      .map((item) => `${item.role === "user" ? "User" : "Assistant"}: ${item.text}`)
+      .join("\n")
+  }, [])
+
   
   // Накопленный текст с момента последнего Assist (для отправки при нажатии Assist)
   const accumulatedVoiceTextRef = useRef<string>("")
@@ -462,10 +476,10 @@ const App: React.FC = () => {
   const handleAssistClick = useCallback(async () => {
     const textToSend = (accumulatedVoiceTextRef.current || "").trim()
     if (!textToSend || textToSend.length < 3) {
-      // Если нет накопленного текста, отправляем запрос по всему контексту
-      const history = conversationToString()
-      const prompt = history
-        ? `Контекст диалога:\n${history}\n\nДай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен.`
+      // Если нет накопленного текста, отправляем запрос по последнему контексту
+      const recentHistory = getRecentContext(10)
+      const prompt = recentHistory
+        ? `Контекст диалога (последние сообщения):\n${recentHistory}\n\nДай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен.`
         : "Дай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен."
       
       if (chatInFlightRef.current) return
@@ -498,11 +512,11 @@ const App: React.FC = () => {
     lastInterimTextRef.current = ""
     
     try {
-      // Получаем полный контекст диалога для отправки в ИИ
-      const history = conversationToString()
-      // Отправляем только новый текст, но с учетом всего контекста
-      const prompt = history
-        ? `Контекст диалога:\n${history}\n\nОтветь на последнюю реплику пользователя, учитывая контекст.`
+      // Получаем последние сообщения для контекста (чтобы промпт не был слишком длинным)
+      const recentHistory = getRecentContext(10) // последние 10 сообщений = 5 пар вопрос-ответ
+      // Отправляем только новый текст, но с учетом контекста последних сообщений
+      const prompt = recentHistory
+        ? `Контекст диалога (последние сообщения):\n${recentHistory}\n\nОтветь на последнюю реплику пользователя, учитывая контекст.`
         : `Ответь на следующий запрос пользователя:\n${textToSend}`
       
       // Подготовить слот для ответа в answers
@@ -522,21 +536,21 @@ const App: React.FC = () => {
     } finally {
       chatInFlightRef.current = false
     }
-  }, [appendTranscript, conversationToString, askStream])
+  }, [appendTranscript, getRecentContext, askStream])
 
-  // Авторасширение окна под фиксированный блок чата/транскрипта
-  useEffect(() => {
-    const el = floatingRef.current
-    if (!el || !window.electronAPI?.ensureWindowSize) return
-    try {
-      const rect = el.getBoundingClientRect()
-      const requiredWidth = Math.ceil(rect.left + rect.width + 24)
-      const requiredHeight = Math.ceil(rect.top + rect.height + 24)
-      if (requiredWidth > 0 && requiredHeight > 0) {
-        window.electronAPI.ensureWindowSize({ width: requiredWidth, height: requiredHeight })
-      }
-    } catch {}
-  }, [activeTab, transcript, lastAssistantAnswer, sessionActive])
+  // Фиксированный размер окна - не растягиваем автоматически
+  // useEffect(() => {
+  //   const el = floatingRef.current
+  //   if (!el || !window.electronAPI?.ensureWindowSize) return
+  //   try {
+  //     const rect = el.getBoundingClientRect()
+  //     const requiredWidth = Math.ceil(rect.left + rect.width + 24)
+  //     const requiredHeight = Math.ceil(rect.top + rect.height + 24)
+  //     if (requiredWidth > 0 && requiredHeight > 0) {
+  //       window.electronAPI.ensureWindowSize({ width: requiredWidth, height: requiredHeight })
+  //     }
+  //   } catch {}
+  // }, [activeTab, transcript, lastAssistantAnswer, sessionActive])
 
   const selectVoiceDevice = useCallback(
     (id: string) => {
@@ -590,6 +604,24 @@ const App: React.FC = () => {
     transcriptRef.current = transcript
   }, [transcript])
 
+  // Управление прозрачностью body при активной сессии
+  useEffect(() => {
+    if (sessionActive) {
+      document.body.classList.add("session-active")
+      document.body.style.backgroundColor = "transparent"
+      document.documentElement.style.backgroundColor = "transparent"
+    } else {
+      document.body.classList.remove("session-active")
+      document.body.style.backgroundColor = ""
+      document.documentElement.style.backgroundColor = ""
+    }
+    return () => {
+      document.body.classList.remove("session-active")
+      document.body.style.backgroundColor = ""
+      document.documentElement.style.backgroundColor = ""
+    }
+  }, [sessionActive])
+
   const startNewSession = () => {
     stopVoiceRecording()
     conversationRef.current = []
@@ -637,20 +669,18 @@ const App: React.FC = () => {
     }
   }
 
+  console.log("[App] Rendering, sessionActive:", sessionActive, "answers:", answers.length, "transcript:", transcript.length)
+  
   return (
     <div
       ref={containerRef}
-      className="min-h-0"
-      style={{
-        padding: sessionActive ? 0 : 16,
-        background: sessionActive ? "transparent" : "#f3f4f6",
-        minHeight: "100vh",
-        transition: "background 0.15s ease-in-out"
-      }}
+      className="min-h-screen bg-transparent"
+      style={{ backgroundColor: 'transparent' }}
     >
-      <ToastProvider>
-        {!sessionActive &&
-          (() => {
+        <ToastProvider>
+        {!sessionActive && (
+          <>
+          {(() => {
             if (token) {
               // token ok
             } else {
@@ -760,7 +790,7 @@ const App: React.FC = () => {
                     <div>
                       <div style={{ fontWeight: 600 }}>Авторизован</div>
                       <div style={{ fontSize: "11px", opacity: 0.9 }}>
-                        Токен: {token.substring(0, 25)}...
+                        Токен: {(token || "").substring(0, 25)}...
                       </div>
                     </div>
                   </div>
@@ -797,48 +827,23 @@ const App: React.FC = () => {
               )
             }
           })()}
-        {voiceError && (
-          <div
-            style={{
-              marginBottom: 12,
-              background: "rgba(220,38,38,0.85)",
-              color: "#fff",
-              borderRadius: 8,
-              padding: "8px 12px",
-              fontSize: "12px",
-              boxShadow: "0 4px 12px rgba(220,38,38,0.4)"
-            }}
-          >
-            {voiceError}
-          </div>
-        )}
-          {!sessionActive ? (
-            view === "queue" ? (
-              <Queue setView={setView} onTranscriptUpdate={appendTranscript} />
-            ) : view === "solutions" ? (
-              <Solutions setView={setView} />
-            ) : (
-              <></>
-            )
+          {voiceError && !sessionActive && (
+            <div className="mb-3 bg-red-600/85 text-white rounded-lg p-3 text-xs shadow-lg">
+              {voiceError}
+            </div>
+          )}
+          {view === "queue" ? (
+            <Queue setView={setView} onTranscriptUpdate={appendTranscript} />
+          ) : view === "solutions" ? (
+            <Solutions setView={setView} />
           ) : null}
+          </>
+        )}
           <ToastViewport />
-        
-        <PremiumModal
-          isOpen={showPremiumModal}
-          onClose={() => setShowPremiumModal(false)}
-          onPurchase={async () => {
-            try {
-              await window.electronAPI.openPremiumPurchase?.()
-              setShowPremiumModal(false)
-            } catch (e) {
-              console.error("[App] Error opening premium purchase:", e)
-            }
-          }}
-          timeRemaining={premiumInfo?.timeRemaining || null}
-        />
 
-        {sessionActive && (
-          <>
+        {/* Плавающий оверлей всегда виден, как в Cluely */}
+        {!showProfile && (
+          <div className="pointer-events-auto">
             <ControlBar
               tab={activeTab}
               onTabChange={(t) => {
@@ -857,61 +862,49 @@ const App: React.FC = () => {
               onToggleRecording={handleRecordToggle}
               recording={isVoiceRecording}
               inputLevel={voiceInputLevel}
-            />
-
-            <div
-              style={{
-                position: "fixed",
-                left: "50%",
-                top: 150,
-                transform: "translateX(-50%)",
-                zIndex: 9990
+              onClose={async () => {
+                try {
+                  await window.electronAPI.invoke?.("toggle-window")
+                } catch {}
               }}
-              ref={floatingRef}
-            >
-              {activeTab === "transcript" ? (
-                <TranscriptView lines={transcript} />
-              ) : (
-                <ChatView
-                  answers={answers}
-                  onAsk={geminiAsk}
-                  externalAnswer={lastAssistantAnswer}
-                  onAnswered={handleChatAnswered}
-                  onAssistClick={handleAssistClick}
-                />
-              )}
-            </div>
-          </>
-        )}
-
-        <SummaryOverlay
-          open={showSummary}
-          summary={summaryText}
-          onClose={() => setShowSummary(false)}
-          onNewSession={startNewSession}
-        />
-
-        {showProfile && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.55)",
-              zIndex: 9970,
-              overflow: "auto"
-            }}
-            onClick={() => setShowProfile(false)}
-          >
-            <div onClick={(e) => e.stopPropagation()}>
-              <ProfileSettings
-                voiceDevices={voiceDevices}
-                selectedDeviceId={selectedVoiceDevice}
-                onSelectDevice={selectVoiceDevice}
-                onRefreshDevices={refreshVoiceDevices}
-              />
-            </div>
+            />
           </div>
         )}
+
+        {!showProfile && (
+          <div
+            className="fixed left-1/2 top-[150px] -translate-x-1/2 z-[9990] pointer-events-auto"
+            ref={floatingRef}
+          >
+            {activeTab === "transcript" ? (
+              <TranscriptView lines={transcript} />
+            ) : (
+              <ChatView
+                answers={answers}
+                onAsk={geminiAsk}
+                externalAnswer={lastAssistantAnswer}
+                onAnswered={handleChatAnswered}
+                onAssistClick={handleAssistClick}
+              />
+            )}
+          </div>
+        )}
+        
+        {voiceError && (
+          <div className="fixed top-[100px] left-1/2 -translate-x-1/2 z-[9991] pointer-events-auto mb-3 bg-red-600/85 text-white rounded-lg p-3 text-xs shadow-lg">
+            {voiceError}
+          </div>
+        )}
+
+
+        <ProfileSettings
+          open={showProfile}
+          onOpenChange={setShowProfile}
+          voiceDevices={voiceDevices}
+          selectedDeviceId={selectedVoiceDevice}
+          onSelectDevice={selectVoiceDevice}
+          onRefreshDevices={refreshVoiceDevices}
+        />
         </ToastProvider>
     </div>
   )
