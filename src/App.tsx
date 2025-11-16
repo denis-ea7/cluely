@@ -11,6 +11,7 @@ import { ProfileSettings } from "./components/ProfileSettings"
 import { useVoiceRecorder } from "./hooks/useVoiceRecorder"
 import { cn } from "./lib/utils"
 import { Button } from "./components/ui/button"
+import { Alert, AlertDescription } from "./components/ui/alert"
 
 declare global {
   interface Window {
@@ -514,10 +515,31 @@ const App: React.FC = () => {
     try {
       // Получаем последние сообщения для контекста (чтобы промпт не был слишком длинным)
       const recentHistory = getRecentContext(10) // последние 10 сообщений = 5 пар вопрос-ответ
-      // Отправляем только новый текст, но с учетом контекста последних сообщений
+
+      // Отправляем ИМЕННО последний запрос, но даём модели короткий контекст.
+      // Явно просим НЕ перечислять предыдущие вопросы и не делать пересказ.
       const prompt = recentHistory
-        ? `Контекст диалога (последние сообщения):\n${recentHistory}\n\nОтветь на последнюю реплику пользователя, учитывая контекст.`
-        : `Ответь на следующий запрос пользователя:\n${textToSend}`
+        ? [
+            "Ты помощник по голосовому диалогу.",
+            "",
+            "Вот краткий контекст предыдущего диалога (ТОЛЬКО для понимания, не нужно его пересказывать):",
+            recentHistory,
+            "",
+            "Последняя реплика пользователя, на которую нужно ответить:",
+            `"${textToSend}"`,
+            "",
+            "Ответь ТОЛЬКО на эту последнюю реплику.",
+            "Не повторяй предыдущие вопросы и ответы, не пересказывай весь диалог, не пиши длинный реферат.",
+            "Сделай ответ кратким и по делу, но учитывай контекст, если это помогает понять вопрос."
+          ].join("\n")
+        : [
+            "Ты помощник по голосовому диалогу.",
+            "",
+            "Ответь на следующий запрос пользователя:",
+            `"${textToSend}"`,
+            "",
+            "Не повторяй предыдущие вопросы и не пиши длинный обзор, просто дай конкретный ответ."
+          ].join("\n")
       
       // Подготовить слот для ответа в answers
       setAnswers((prev) => prev.length === 0 ? [""] : prev)
@@ -674,171 +696,13 @@ const App: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className="min-h-screen bg-transparent"
-      style={{ backgroundColor: 'transparent' }}
+      className={cn(
+        "bg-transparent fixed inset-0 w-full h-full overflow-hidden",
+        sessionActive ? "pointer-events-none" : "pointer-events-auto"
+      )}
     >
         <ToastProvider>
-        {!sessionActive && (
-          <>
-          {(() => {
-            if (token) {
-              // token ok
-            } else {
-              console.log("[App] ❌ No token in UI")
-            }
-
-            if (!token) {
-              return (
-                <div
-                  style={{
-                    padding: "12px 16px",
-                    background: "#111827",
-                    color: "#fff",
-                    borderRadius: 8,
-                    marginBottom: 12,
-                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 12
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Требуется авторизация</div>
-                      <div style={{ fontSize: "12px", opacity: 0.8 }}>
-                        Для работы приложения необходимо войти в систему
-                      </div>
-                      <button
-                        onClick={() => {
-                          console.log("[App] Manual token refresh requested")
-                          refetchToken()
-                        }}
-                        style={{
-                          marginTop: 8,
-                          padding: "4px 8px",
-                          fontSize: "11px",
-                          background: "rgba(255,255,255,0.1)",
-                          color: "#fff",
-                          border: "1px solid rgba(255,255,255,0.2)",
-                          borderRadius: 4,
-                          cursor: "pointer"
-                        }}
-                      >
-                        🔄 Проверить токен
-                      </button>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        try {
-                          console.log("[App] Opening auth page...")
-                          const result =
-                            (await window.electronAPI.openAuth?.()) ||
-                            (await window.electronAPI.invoke("open-auth"))
-                          console.log("[App] Open auth result:", result)
-                          setTimeout(() => refetchToken(), 2000)
-                          setTimeout(() => refetchToken(), 5000)
-                          setTimeout(() => refetchToken(), 10000)
-                        } catch (e) {
-                          console.error("[App] Error opening auth:", e)
-                          alert(
-                            "Ошибка открытия страницы авторизации: " +
-                              (e instanceof Error ? e.message : String(e))
-                          )
-                        }
-                      }}
-                      style={{
-                        background: "#2563eb",
-                        color: "#fff",
-                        border: "none",
-                        padding: "10px 20px",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        transition: "background 0.2s"
-                      }}
-                      onMouseOver={(e) => (e.currentTarget.style.background = "#1d4ed8")}
-                      onMouseOut={(e) => (e.currentTarget.style.background = "#2563eb")}
-                    >
-                      Авторизоваться
-                    </button>
-                  </div>
-                </div>
-              )
-            } else {
-              return (
-                <div
-                  style={{
-                    padding: "10px 16px",
-                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                    color: "#fff",
-                    borderRadius: 8,
-                    marginBottom: 12,
-                    fontSize: "13px",
-                    boxShadow: "0 2px 4px rgba(16,185,129,0.2)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: "16px" }}>✅</span>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>Авторизован</div>
-                      <div style={{ fontSize: "11px", opacity: 0.9 }}>
-                        Токен: {(token || "").substring(0, 25)}...
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (confirm("Вы уверены, что хотите выйти?")) {
-                        try {
-                          await (
-                            window.electronAPI.clearToken?.() ||
-                            window.electronAPI.invoke("clear-token")
-                          )
-                          queryClient.setQueryData(["auth_token"], null)
-                          await refetchToken()
-                          console.log("[App] Token cleared and UI updated")
-                        } catch (e) {
-                          console.error("[App] Error clearing token:", e)
-                        }
-                      }
-                    }}
-                    style={{
-                      background: "rgba(255,255,255,0.2)",
-                      color: "#fff",
-                      border: "1px solid rgba(255,255,255,0.3)",
-                      padding: "6px 12px",
-                      borderRadius: 4,
-                      cursor: "pointer",
-                      fontSize: "11px",
-                      fontWeight: 600
-                    }}
-                  >
-                    Выйти
-                  </button>
-                </div>
-              )
-            }
-          })()}
-          {voiceError && !sessionActive && (
-            <div className="mb-3 bg-red-600/85 text-white rounded-lg p-3 text-xs shadow-lg">
-              {voiceError}
-            </div>
-          )}
-          {view === "queue" ? (
-            <Queue setView={setView} onTranscriptUpdate={appendTranscript} />
-          ) : view === "solutions" ? (
-            <Solutions setView={setView} />
-          ) : null}
-          </>
-        )}
+        {/* Главное окно полностью скрыто */}
           <ToastViewport />
 
         {/* Плавающий оверлей всегда виден, как в Cluely */}
@@ -891,9 +755,14 @@ const App: React.FC = () => {
         )}
         
         {voiceError && (
-          <div className="fixed top-[100px] left-1/2 -translate-x-1/2 z-[9991] pointer-events-auto mb-3 bg-red-600/85 text-white rounded-lg p-3 text-xs shadow-lg">
-            {voiceError}
-          </div>
+          <Alert 
+            variant="destructive"
+            className="fixed top-[100px] left-1/2 -translate-x-1/2 z-[9991] pointer-events-auto mb-3 bg-red-600/85 text-white border-red-500/50 shadow-lg max-w-md"
+          >
+            <AlertDescription className="text-xs">
+              {voiceError}
+            </AlertDescription>
+          </Alert>
         )}
 
 

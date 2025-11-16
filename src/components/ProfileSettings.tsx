@@ -77,13 +77,25 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               <CardTitle className="text-white text-sm">Статус</CardTitle>
             </CardHeader>
             <CardContent>
-              <CardDescription className="text-white/70">
-                {token ? (
-                  <span>Авторизован • токен {token.substring(0, 16)}…</span>
-                ) : (
-                  <span>Не авторизован</span>
+              <div className="flex items-center justify-between">
+                <CardDescription className="text-white/70">
+                  {token ? (
+                    <span>Авторизован • токен {token.substring(0, 16)}…</span>
+                  ) : (
+                    <span>Не авторизован</span>
+                  )}
+                </CardDescription>
+                {token && (
+                  <Button
+                    onClick={handleLogout}
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/20 hover:text-red-300"
+                  >
+                    Выйти
+                  </Button>
                 )}
-              </CardDescription>
+              </div>
             </CardContent>
           </Card>
 

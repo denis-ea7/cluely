@@ -106,8 +106,7 @@ const SolutionCommands: React.FC<SolutionCommandsProps> = ({
             {isTooltipVisible && (
               <div
                 ref={tooltipRef}
-                className="absolute top-full right-0 mt-2 w-80"
-                style={{ zIndex: 100 }}
+                className="absolute top-full right-0 mt-2 w-80 z-[100]"
               >
                 <div className="p-3 text-xs bg-black/80 backdrop-blur-md rounded-lg border border-white/10 text-white/90 shadow-lg">
                   {}
