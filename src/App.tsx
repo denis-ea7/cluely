@@ -643,8 +643,8 @@ const App: React.FC = () => {
     <div
       ref={containerRef}
       className={cn(
-        // Тёмный полупрозрачный фон + блюр для лучшей читаемости поверх рабочего стола
-        "fixed inset-0 w-full h-full overflow-hidden bg-slate-900/70 backdrop-blur-md",
+        // Прозрачный оверлей на весь экран — внутри только компактные панели
+        "fixed inset-0 w-full h-full overflow-hidden bg-transparent",
         sessionActive ? "pointer-events-none" : "pointer-events-auto"
       )}
     >

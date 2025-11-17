@@ -131,7 +131,8 @@ export class WindowHelper {
     this.screenWidth = workArea.width
     this.screenHeight = workArea.height
 
-    const useFrame = process.env.DEBUG_WINDOW === "true"
+    // Для режима «плавающего оверлея» как в Cluely всегда используем безрамочное прозрачное окно
+    const useFrame = false
     
     const savedState = this.stateManager.load()
     const defaultWidth = 600
