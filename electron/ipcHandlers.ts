@@ -4,7 +4,7 @@ import { AppState } from "./main"
 import { TokenManager } from "./TokenManager"
 
 
-const activeTranscriptionStreams = new Map<number, { sendChunk: (pcmChunk: Buffer) => void; close: () => void }>()
+const activeTranscriptionStreams = new Map<number, { sendChunk: (pcmChunk: Buffer) => void; close: () => Promise<void> }>()
 
 export function initializeIpcHandlers(appState: AppState): void {
   const tokenManager = new TokenManager()
@@ -236,8 +236,10 @@ export function initializeIpcHandlers(appState: AppState): void {
       
       const existing = activeTranscriptionStreams.get(webContentsId)
       if (existing) {
-        existing.close()
+        await existing.close()
         activeTranscriptionStreams.delete(webContentsId)
+        // Небольшая задержка для гарантии полного закрытия соединения
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
 
       const helper = appState.processingHelper.getLLMHelper()
@@ -286,7 +288,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       const webContentsId = event.sender.id
       const stream = activeTranscriptionStreams.get(webContentsId)
       if (stream) {
-        stream.close()
+        await stream.close()
         activeTranscriptionStreams.delete(webContentsId)
       }
       return { success: true }
@@ -298,10 +300,10 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   
   app.on("web-contents-created", (_event, webContents) => {
-    webContents.on("destroyed", () => {
+    webContents.on("destroyed", async () => {
       const stream = activeTranscriptionStreams.get(webContents.id)
       if (stream) {
-        stream.close()
+        await stream.close().catch(() => {})
         activeTranscriptionStreams.delete(webContents.id)
       }
     })

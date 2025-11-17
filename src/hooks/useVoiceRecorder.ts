@@ -104,7 +104,9 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     }
     
     if ((window as any)?.electronAPI?.stopTranscriptionStream) {
-      ;(window as any).electronAPI.stopTranscriptionStream().catch(() => {})
+      ;(window as any).electronAPI.stopTranscriptionStream().catch((err: any) => {
+        console.warn("[VoiceRecorder] Error stopping transcription stream:", err)
+      })
     }
     analyserRef.current = null
     vadStateRef.current = createInitialVadState()
