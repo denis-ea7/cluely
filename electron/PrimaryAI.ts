@@ -238,7 +238,7 @@ export class PrimaryAI {
   ): {
     ws: WebSocket
     sendChunk: (pcmChunk: Buffer) => void
-    close: () => void
+    close: () => Promise<void>
   } {
     const ws = new WebSocket(this.wsUrl, {
       headers: { Authorization: `Bearer ${this.token}` }
@@ -247,8 +247,13 @@ export class PrimaryAI {
     let isOpen = false
     let pendingChunks: Buffer[] = []
     let lastText = ""
+    let isClosing = false
   
     ws.on("open", () => {
+      if (isClosing) {
+        ws.close(1000, "done")
+        return
+      }
       isOpen = true
       ws.send(
         JSON.stringify({
@@ -267,6 +272,7 @@ export class PrimaryAI {
     })
   
     ws.on("message", (data: WebSocket.Data) => {
+      if (isClosing) return
       try {
         const msg = JSON.parse(data.toString())
   
@@ -288,10 +294,11 @@ export class PrimaryAI {
     })
   
     ws.on("error", (e: Error) => {
-      if (onError) onError(e)
+      if (onError && !isClosing) onError(e)
     })
   
     const sendChunk = (pcmChunk: Buffer) => {
+      if (isClosing) return
       if (isOpen && ws.readyState === WebSocket.OPEN) {
         ws.send(pcmChunk)
       } else {
@@ -299,10 +306,80 @@ export class PrimaryAI {
       }
     }
   
-    const close = () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close(1000, "done")
-      }
+    const close = (): Promise<void> => {
+      return new Promise((resolve) => {
+        if (isClosing) {
+          resolve()
+          return
+        }
+        
+        isClosing = true
+        isOpen = false
+        pendingChunks = []
+        
+        const state = ws.readyState
+        if (state === WebSocket.CLOSED || state === WebSocket.CLOSING) {
+          resolve()
+          return
+        }
+        
+        if (state === WebSocket.CONNECTING) {
+          // Если WebSocket еще подключается, ждем открытия или ошибки, затем закрываем
+          const timeout = setTimeout(() => {
+            try {
+              if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+                ws.close(1000, "done")
+              }
+            } catch {}
+            resolve()
+          }, 1000)
+          
+          const onOpen = () => {
+            clearTimeout(timeout)
+            ws.removeListener("open", onOpen)
+            ws.removeListener("error", onError)
+            ws.removeListener("close", onClose)
+            try {
+              ws.close(1000, "done")
+            } catch {}
+            resolve()
+          }
+          
+          const onError = () => {
+            clearTimeout(timeout)
+            ws.removeListener("open", onOpen)
+            ws.removeListener("error", onError)
+            ws.removeListener("close", onClose)
+            resolve()
+          }
+          
+          const onClose = () => {
+            clearTimeout(timeout)
+            ws.removeListener("open", onOpen)
+            ws.removeListener("error", onError)
+            ws.removeListener("close", onClose)
+            resolve()
+          }
+          
+          ws.once("open", onOpen)
+          ws.once("error", onError)
+          ws.once("close", onClose)
+        } else if (state === WebSocket.OPEN) {
+          // Если WebSocket открыт, просто закрываем и ждем события close
+          const onClose = () => {
+            ws.removeListener("close", onClose)
+            resolve()
+          }
+          ws.once("close", onClose)
+          try {
+            ws.close(1000, "done")
+          } catch (err) {
+            resolve()
+          }
+        } else {
+          resolve()
+        }
+      })
     }
   
     return { ws, sendChunk, close }

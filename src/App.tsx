@@ -85,13 +85,23 @@ declare global {
   }
 }
 
-// Нормализация вопроса для дедупликации
 const normalizeQuestion = (s: string) =>
   s
     .toLowerCase()
     .replace(/\s+/g, " ")
     .replace(/[.,!…–—-]+$/g, "")
     .trim()
+
+const extractLastQuestion = (text: string) => {
+  const trimmed = text.trim()
+  if (!trimmed) return ""
+  const matches = trimmed.match(/[^?]*\?/g)
+  if (matches && matches.length > 0) {
+    return matches[matches.length - 1].trim()
+  }
+  const parts = trimmed.split(/[.!]/).map((p) => p.trim()).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : trimmed
+}
 
 const App: React.FC = () => {
   console.log("[App] render start")
@@ -337,7 +347,6 @@ const App: React.FC = () => {
   
   const askStream = useCallback(async (message: string): Promise<string> => {
     let acc = ""
-    // Сбрасываем текст текущего ответа перед началом стриминга
     setLastAssistantAnswer("")
     
     const unDelta = window.electronAPI.onChatDelta?.(({ delta }) => {
@@ -345,11 +354,9 @@ const App: React.FC = () => {
       acc += delta
       setLastAssistantAnswer((prev) => {
         const next = (prev || "") + delta
-        // Стрим обновляет текущий ответ в списке answers
         setAnswers((prev) => {
-          const idx = streamingAssistantIndexRef.current ?? (prev.length - 1)
+          const idx = streamingAssistantIndexRef.current
           if (idx == null || idx < 0 || idx >= prev.length) {
-            // если первый чанк — создаем новую запись и фиксируем индекс
             const created = [...prev, next]
             streamingAssistantIndexRef.current = created.length - 1
             return created
@@ -379,7 +386,6 @@ const App: React.FC = () => {
     if (!entry.text?.trim()) return
     const clean = entry.text.trim()
     if (entry.speaker === "user") {
-      // дедупликация похожих вопросов, чтобы не плодить повтор
       const norm = normalizeQuestion(clean)
       const last = recentQuestionsRef.current[recentQuestionsRef.current.length - 1]
       const isSameOrSubset =
@@ -400,27 +406,22 @@ const App: React.FC = () => {
   }, [])
 
   const conversationToString = useCallback(() => {
-    if (!conversationRef.current.length) return ""
-    return conversationRef.current
-      .map((item) => `${item.role === "user" ? "User" : "Assistant"}: ${item.text}`)
-      .join("\n")
+    return ""
   }, [])
 
-  // Получить последние N сообщений для контекста (чтобы промпт не был слишком длинным)
   const getRecentContext = useCallback((maxMessages: number = 10) => {
     if (!conversationRef.current.length) return ""
-    // Берем последние maxMessages сообщений (5 пар вопрос-ответ)
-    const recent = conversationRef.current.slice(-maxMessages)
+    const onlyUserMessages = conversationRef.current.filter((m) => m.role === "user")
+    if (!onlyUserMessages.length) return ""
+    const recent = onlyUserMessages.slice(-maxMessages)
     return recent
-      .map((item) => `${item.role === "user" ? "User" : "Assistant"}: ${item.text}`)
+      .map((item) => `User: ${item.text}`)
       .join("\n")
   }, [])
 
   
-  // Накопленный текст с момента последнего Assist (для отправки при нажатии Assist)
   const accumulatedVoiceTextRef = useRef<string>("")
   const lastInterimTextRef = useRef<string>("")
-  // Индекс строки ассистента, в которую пишется текущий стрим-ответ
   const streamingAssistantIndexRef = useRef<number | null>(null)
 
   const handleVoiceResult = useCallback(
@@ -436,21 +437,17 @@ const App: React.FC = () => {
         return
       }
       
-      // Игнорируем interim результаты, которые идентичны предыдущим
       if (incoming === lastInterimTextRef.current) {
         return
       }
       
-      // Обновляем накопленный текст только если он действительно новый
       const normalizedIncoming = normalizeQuestion(incoming)
       const normalizedAccumulated = normalizeQuestion(accumulatedVoiceTextRef.current)
       
-      // Если новый текст является расширением накопленного - обновляем накопленный
       if (normalizedIncoming.length > normalizedAccumulated.length && normalizedIncoming.startsWith(normalizedAccumulated)) {
         accumulatedVoiceTextRef.current = incoming
         lastInterimTextRef.current = incoming
-      } else if (normalizedIncoming !== normalizedAccumulated && !normalizedIncoming.includes(normalizedAccumulated)) {
-        // Если это совершенно новый текст (не расширение) - заменяем накопленный
+      } else if (normalizedIncoming !== normalizedAccumulated) {
         accumulatedVoiceTextRef.current = incoming
         lastInterimTextRef.current = incoming
       }
@@ -473,11 +470,10 @@ const App: React.FC = () => {
     getChatHistory: conversationToString
   })
 
-  // Функция для отправки накопленного текста при нажатии Assist
   const handleAssistClick = useCallback(async () => {
-    const textToSend = (accumulatedVoiceTextRef.current || "").trim()
+    const rawText = (accumulatedVoiceTextRef.current || "").trim()
+    const textToSend = extractLastQuestion(rawText)
     if (!textToSend || textToSend.length < 3) {
-      // Если нет накопленного текста, отправляем запрос по последнему контексту
       const recentHistory = getRecentContext(10)
       const prompt = recentHistory
         ? `Контекст диалога (последние сообщения):\n${recentHistory}\n\nДай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен.`
@@ -490,7 +486,6 @@ const App: React.FC = () => {
         setAnswers((prev) => prev.length === 0 ? [""] : prev)
         streamingAssistantIndexRef.current = null
         const response = await askStream(prompt)
-        // Добавляем в контекст
         conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
       } catch (err: any) {
         const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки."
@@ -504,49 +499,17 @@ const App: React.FC = () => {
     if (chatInFlightRef.current) return
     chatInFlightRef.current = true
     
-    // Добавляем вопрос пользователя в транскрипт и контекст
-    appendTranscript({ speaker: "user", text: textToSend })
-    conversationRef.current = [...conversationRef.current, { role: "user", text: textToSend }]
-    
-    // Очищаем накопленный буфер после отправки
-    accumulatedVoiceTextRef.current = ""
-    lastInterimTextRef.current = ""
+    const savedText = textToSend
+    appendTranscript({ speaker: "user", text: savedText })
+    conversationRef.current = [...conversationRef.current, { role: "user", text: savedText }]
     
     try {
-      // Получаем последние сообщения для контекста (чтобы промпт не был слишком длинным)
-      const recentHistory = getRecentContext(10) // последние 10 сообщений = 5 пар вопрос-ответ
-
-      // Отправляем ИМЕННО последний запрос, но даём модели короткий контекст.
-      // Явно просим НЕ перечислять предыдущие вопросы и не делать пересказ.
-      const prompt = recentHistory
-        ? [
-            "Ты помощник по голосовому диалогу.",
-            "",
-            "Вот краткий контекст предыдущего диалога (ТОЛЬКО для понимания, не нужно его пересказывать):",
-            recentHistory,
-            "",
-            "Последняя реплика пользователя, на которую нужно ответить:",
-            `"${textToSend}"`,
-            "",
-            "Ответь ТОЛЬКО на эту последнюю реплику.",
-            "Не повторяй предыдущие вопросы и ответы, не пересказывай весь диалог, не пиши длинный реферат.",
-            "Сделай ответ кратким и по делу, но учитывай контекст, если это помогает понять вопрос."
-          ].join("\n")
-        : [
-            "Ты помощник по голосовому диалогу.",
-            "",
-            "Ответь на следующий запрос пользователя:",
-            `"${textToSend}"`,
-            "",
-            "Не повторяй предыдущие вопросы и не пиши длинный обзор, просто дай конкретный ответ."
-          ].join("\n")
+      const prompt = savedText
       
-      // Подготовить слот для ответа в answers
       setAnswers((prev) => prev.length === 0 ? [""] : prev)
       streamingAssistantIndexRef.current = null
       const response = await askStream(prompt)
       
-      // Добавляем ответ в контекст
       conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
       
     } catch (err: any) {
@@ -556,23 +519,13 @@ const App: React.FC = () => {
       setVoiceError(message)
       conversationRef.current = [...conversationRef.current, { role: "assistant", text: message }]
     } finally {
+      accumulatedVoiceTextRef.current = ""
+      lastInterimTextRef.current = ""
       chatInFlightRef.current = false
     }
   }, [appendTranscript, getRecentContext, askStream])
 
-  // Фиксированный размер окна - не растягиваем автоматически
-  // useEffect(() => {
-  //   const el = floatingRef.current
-  //   if (!el || !window.electronAPI?.ensureWindowSize) return
-  //   try {
-  //     const rect = el.getBoundingClientRect()
-  //     const requiredWidth = Math.ceil(rect.left + rect.width + 24)
-  //     const requiredHeight = Math.ceil(rect.top + rect.height + 24)
-  //     if (requiredWidth > 0 && requiredHeight > 0) {
-  //       window.electronAPI.ensureWindowSize({ width: requiredWidth, height: requiredHeight })
-  //     }
-  //   } catch {}
-  // }, [activeTab, transcript, lastAssistantAnswer, sessionActive])
+
 
   const selectVoiceDevice = useCallback(
     (id: string) => {
@@ -626,21 +579,14 @@ const App: React.FC = () => {
     transcriptRef.current = transcript
   }, [transcript])
 
-  // Управление прозрачностью body при активной сессии
   useEffect(() => {
     if (sessionActive) {
       document.body.classList.add("session-active")
-      document.body.style.backgroundColor = "transparent"
-      document.documentElement.style.backgroundColor = "transparent"
     } else {
       document.body.classList.remove("session-active")
-      document.body.style.backgroundColor = ""
-      document.documentElement.style.backgroundColor = ""
     }
     return () => {
       document.body.classList.remove("session-active")
-      document.body.style.backgroundColor = ""
-      document.documentElement.style.backgroundColor = ""
     }
   }, [sessionActive])
 
@@ -697,7 +643,8 @@ const App: React.FC = () => {
     <div
       ref={containerRef}
       className={cn(
-        "bg-transparent fixed inset-0 w-full h-full overflow-hidden",
+        // Тёмный полупрозрачный фон + блюр для лучшей читаемости поверх рабочего стола
+        "fixed inset-0 w-full h-full overflow-hidden bg-slate-900/70 backdrop-blur-md",
         sessionActive ? "pointer-events-none" : "pointer-events-auto"
       )}
     >

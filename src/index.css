@@ -55,14 +55,23 @@
   }
   html,
   body {
-    @apply bg-transparent text-foreground;
+    @apply text-foreground;
     margin: 0;
     padding: 0;
     overflow: hidden;
+    /* Непрозрачный тёмный фон, чтобы интерфейс всегда был хорошо виден */
+    background:
+      radial-gradient(circle at top left, rgba(56, 189, 248, 0.25), transparent 55%),
+      radial-gradient(circle at bottom right, rgba(129, 140, 248, 0.25), transparent 55%),
+      #020617;
   }
-  
+
   body.session-active {
-    @apply bg-transparent;
+    /* При активной сессии оставляем тот же читаемый фон */
+    background:
+      radial-gradient(circle at top left, rgba(56, 189, 248, 0.25), transparent 55%),
+      radial-gradient(circle at bottom right, rgba(129, 140, 248, 0.25), transparent 55%),
+      #020617;
   }
 }
 
