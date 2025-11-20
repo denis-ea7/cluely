@@ -294,6 +294,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         if ((window as any)?.electronAPI?.onTranscriptionInterim) {
           const cleanup = (window as any).electronAPI.onTranscriptionInterim((data: { text: string }) => {
             if (data?.text) {
+              console.log("[VoiceRecorder] transcription interim:", data.text)
               onResult({ text: data.text, timestamp: Date.now(), isResponse: false })
             }
           })

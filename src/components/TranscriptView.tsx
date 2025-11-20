@@ -31,7 +31,7 @@
           {lines.length === 0 ? (
             <div className="text-white text-sm">Транскрипт появится здесь…</div>
           ) : (
-            <div 
+            <div  
               className="space-y-2 overflow-y-auto flex-1 max-h-[550px] bg-slate-900/80 rounded-lg p-3 border border-slate-700/80"
             >
               {lines.map((l, i) => (
