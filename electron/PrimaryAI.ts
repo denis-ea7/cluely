@@ -328,8 +328,8 @@ export class PrimaryAI {
           const timeout = setTimeout(() => {
             try {
               if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
-                ws.close(1000, "done")
-              }
+        ws.close(1000, "done")
+      }
             } catch {}
             resolve()
           }, 1000)

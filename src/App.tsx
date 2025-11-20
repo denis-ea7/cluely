@@ -104,7 +104,6 @@ const extractLastQuestion = (text: string) => {
 }
 
 const App: React.FC = () => {
-  console.log("[App] render start")
   const [view, setView] = useState<"queue" | "solutions" | "debug">("queue")
   const containerRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
@@ -120,6 +119,7 @@ const App: React.FC = () => {
   const [sessionActive, setSessionActive] = useState(true)  
   const [lastAssistantAnswer, setLastAssistantAnswer] = useState("")
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [liveInterimText, setLiveInterimText] = useState<string>("")
   const transcriptRef = useRef<string[]>([])
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([])
   const floatingRef = useRef<HTMLDivElement>(null)
@@ -387,15 +387,15 @@ const App: React.FC = () => {
     const clean = entry.text.trim()
     if (entry.speaker === "user") {
       const norm = normalizeQuestion(clean)
-      const last = recentQuestionsRef.current[recentQuestionsRef.current.length - 1]
-      const isSameOrSubset =
-        !!last &&
-        (norm.includes(last) || last.includes(norm)) &&
-        Math.abs(norm.length - last.length) < 20
-      if (isSameOrSubset) {
-        return
-      }
-      recentQuestionsRef.current = [...recentQuestionsRef.current.slice(-4), norm]
+      const recent = recentQuestionsRef.current
+      const isSameOrSubset = recent.some((q) => {
+        if (!q) return false
+        const lenDiff = Math.abs(norm.length - q.length)
+        if (lenDiff > 20) return false
+        return norm.includes(q) || q.includes(norm)
+      })
+      if (isSameOrSubset) return
+      recentQuestionsRef.current = [...recent.slice(-4), norm]
       setTranscript((prev) => {
         const next = [...prev, `Пользователь: ${clean}`]
         transcriptRef.current = next
@@ -414,9 +414,7 @@ const App: React.FC = () => {
     const onlyUserMessages = conversationRef.current.filter((m) => m.role === "user")
     if (!onlyUserMessages.length) return ""
     const recent = onlyUserMessages.slice(-maxMessages)
-    return recent
-      .map((item) => `User: ${item.text}`)
-      .join("\n")
+    return recent.map((item) => `User: ${item.text}`).join("\n")
   }, [])
 
   
@@ -434,6 +432,7 @@ const App: React.FC = () => {
         }
         appendTranscript({ speaker: "assistant", text: incoming })
         setLastAssistantAnswer(incoming)
+        setLiveInterimText("")
         return
       }
       
@@ -451,6 +450,7 @@ const App: React.FC = () => {
         accumulatedVoiceTextRef.current = incoming
         lastInterimTextRef.current = incoming
       }
+      setLiveInterimText(incoming)
     },
     []
   )
@@ -471,19 +471,40 @@ const App: React.FC = () => {
   })
 
   const handleAssistClick = useCallback(async () => {
+    const transcriptLines = transcriptRef.current || []
+    const userQuestions = transcriptLines
+      .map((line) => line.replace(/^Пользователь:\s*/i, "").trim())
+      .filter(Boolean)
+
+    let mainQuestion = ""
+    let contextQuestions: string[] = []
+
     const rawText = (accumulatedVoiceTextRef.current || "").trim()
-    const textToSend = extractLastQuestion(rawText)
-    if (!textToSend || textToSend.length < 3) {
-      const recentHistory = getRecentContext(10)
-      const prompt = recentHistory
-        ? `Контекст диалога (последние сообщения):\n${recentHistory}\n\nДай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен.`
-        : "Дай полезный и краткий ответ по контексту текущей встречи. Будь лаконичен."
-      
+    const fromVoice = extractLastQuestion(rawText)
+
+    if (fromVoice && fromVoice.length >= 3) {
+      mainQuestion = fromVoice
+      contextQuestions = userQuestions.slice(-5)
+    } else if (userQuestions.length > 0) {
+      const lastIdx = userQuestions.length - 1
+      mainQuestion = userQuestions[lastIdx]
+      contextQuestions = userQuestions.slice(Math.max(0, lastIdx - 5), lastIdx)
+    }
+
+    if (!mainQuestion) {
+      const onlyUser = conversationRef.current.filter((m) => m.role === "user")
+      const lastUser = onlyUser[onlyUser.length - 1]?.text?.trim() || ""
+      if (!lastUser) return
+
+      const prompt = `Ответь по-русски, чётко и по делу на вопрос: "${lastUser}".`
+      console.log("[Assist] fallback lastUser:", lastUser)
+      console.log("[Assist] fallback prompt:", prompt)
+
       if (chatInFlightRef.current) return
       chatInFlightRef.current = true
-      
+
       try {
-        setAnswers((prev) => prev.length === 0 ? [""] : prev)
+        setAnswers((prev) => (prev.length === 0 ? [""] : prev))
         streamingAssistantIndexRef.current = null
         const response = await askStream(prompt)
         conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
@@ -499,19 +520,22 @@ const App: React.FC = () => {
     if (chatInFlightRef.current) return
     chatInFlightRef.current = true
     
-    const savedText = textToSend
-    appendTranscript({ speaker: "user", text: savedText })
-    conversationRef.current = [...conversationRef.current, { role: "user", text: savedText }]
+    console.log("[Assist] mainQuestion:", mainQuestion)
+    console.log("[Assist] contextQuestions:", contextQuestions)
+
+    const prompt = `Ответь по-русски, чётко и по делу на вопрос: "${mainQuestion}".`
+
+    console.log("[Assist] final prompt:", prompt)
+
+    appendTranscript({ speaker: "user", text: mainQuestion })
+    conversationRef.current = [...conversationRef.current, { role: "user", text: mainQuestion }]
     
     try {
-      const prompt = savedText
-      
-      setAnswers((prev) => prev.length === 0 ? [""] : prev)
+      setAnswers((prev) => (prev.length === 0 ? [""] : prev))
       streamingAssistantIndexRef.current = null
       const response = await askStream(prompt)
       
       conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
-      
     } catch (err: any) {
       const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки голоса."
       appendTranscript({ speaker: "assistant", text: message })
@@ -521,10 +545,10 @@ const App: React.FC = () => {
     } finally {
       accumulatedVoiceTextRef.current = ""
       lastInterimTextRef.current = ""
+      setLiveInterimText("")
       chatInFlightRef.current = false
     }
   }, [appendTranscript, getRecentContext, askStream])
-
 
 
   const selectVoiceDevice = useCallback(
@@ -637,7 +661,6 @@ const App: React.FC = () => {
     }
   }
 
-  console.log("[App] Rendering, sessionActive:", sessionActive, "answers:", answers.length, "transcript:", transcript.length)
   
   return (
     <div
@@ -688,7 +711,14 @@ const App: React.FC = () => {
             ref={floatingRef}
           >
             {activeTab === "transcript" ? (
+              <div className="space-y-1">
               <TranscriptView lines={transcript} />
+                {liveInterimText && (
+                  <div className="mt-1 text-xs text-muted-foreground italic">
+                    {liveInterimText}
+                  </div>
+                )}
+              </div>
             ) : (
               <ChatView
                 answers={answers}
