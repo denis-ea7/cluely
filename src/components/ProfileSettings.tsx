@@ -85,7 +85,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                     <span>Не авторизован</span>
                   )}
                 </CardDescription>
-                {token && (
+                {token ? (
                   <Button
                     onClick={handleLogout}
                     variant="outline"
@@ -93,6 +93,21 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                     className="border-red-500/50 text-red-400 hover:bg-red-500/20 hover:text-red-300"
                   >
                     Выйти
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={async () => {
+                      try {
+                        await (window as any).electronAPI.openAuth?.()
+                      } catch (e) {
+                        console.error("[ProfileSettings] Error opening auth:", e)
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="border-blue-500/50 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300"
+                  >
+                    Войти
                   </Button>
                 )}
               </div>

@@ -421,6 +421,7 @@ const App: React.FC = () => {
   const accumulatedVoiceTextRef = useRef<string>("")
   const lastInterimTextRef = useRef<string>("")
   const streamingAssistantIndexRef = useRef<number | null>(null)
+  const lastSentQuestionRef = useRef<string>("")
 
   const handleVoiceResult = useCallback(
     async (result: { text: string; isResponse?: boolean; transcript?: string }) => {
@@ -471,57 +472,53 @@ const App: React.FC = () => {
   })
 
   const handleAssistClick = useCallback(async () => {
+    if (chatInFlightRef.current) {
+      console.log("[Assist] already in flight, skipping")
+      return
+    }
+
     const transcriptLines = transcriptRef.current || []
     const userQuestions = transcriptLines
       .map((line) => line.replace(/^Пользователь:\s*/i, "").trim())
       .filter(Boolean)
 
     let mainQuestion = ""
-    let contextQuestions: string[] = []
 
     const rawText = (accumulatedVoiceTextRef.current || "").trim()
     const fromVoice = extractLastQuestion(rawText)
 
     if (fromVoice && fromVoice.length >= 3) {
       mainQuestion = fromVoice
-      contextQuestions = userQuestions.slice(-5)
+      accumulatedVoiceTextRef.current = ""
+      lastInterimTextRef.current = ""
+      setLiveInterimText("")
     } else if (userQuestions.length > 0) {
       const lastIdx = userQuestions.length - 1
       mainQuestion = userQuestions[lastIdx]
-      contextQuestions = userQuestions.slice(Math.max(0, lastIdx - 5), lastIdx)
     }
 
     if (!mainQuestion) {
       const onlyUser = conversationRef.current.filter((m) => m.role === "user")
       const lastUser = onlyUser[onlyUser.length - 1]?.text?.trim() || ""
-      if (!lastUser) return
-
-      const prompt = `Ответь по-русски, чётко и по делу на вопрос: "${lastUser}".`
-      console.log("[Assist] fallback lastUser:", lastUser)
-      console.log("[Assist] fallback prompt:", prompt)
-
-      if (chatInFlightRef.current) return
-      chatInFlightRef.current = true
-
-      try {
-        setAnswers((prev) => (prev.length === 0 ? [""] : prev))
-        streamingAssistantIndexRef.current = null
-        const response = await askStream(prompt)
-        conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
-      } catch (err: any) {
-        const message = err?.message ? `Ошибка: ${err.message}` : "Ошибка обработки."
-        setVoiceError(message)
-      } finally {
-        chatInFlightRef.current = false
+      if (!lastUser) {
+        console.log("[Assist] no question found, skipping")
+        return
       }
+      mainQuestion = lastUser
+    }
+
+    const normalizedQuestion = normalizeQuestion(mainQuestion)
+    const normalizedLastSent = normalizeQuestion(lastSentQuestionRef.current)
+
+    if (normalizedQuestion === normalizedLastSent) {
+      console.log("[Assist] duplicate question detected, skipping:", mainQuestion)
       return
     }
     
-    if (chatInFlightRef.current) return
     chatInFlightRef.current = true
-    
+    lastSentQuestionRef.current = mainQuestion
+
     console.log("[Assist] mainQuestion:", mainQuestion)
-    console.log("[Assist] contextQuestions:", contextQuestions)
 
     const prompt = `Ответь по-русски, чётко и по делу на вопрос: "${mainQuestion}".`
 
@@ -543,12 +540,9 @@ const App: React.FC = () => {
       setVoiceError(message)
       conversationRef.current = [...conversationRef.current, { role: "assistant", text: message }]
     } finally {
-      accumulatedVoiceTextRef.current = ""
-      lastInterimTextRef.current = ""
-      setLiveInterimText("")
       chatInFlightRef.current = false
     }
-  }, [appendTranscript, getRecentContext, askStream])
+  }, [appendTranscript, askStream])
 
 
   const selectVoiceDevice = useCallback(
