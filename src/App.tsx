@@ -551,7 +551,48 @@ const App: React.FC = () => {
 
     console.log("[Assist] mainQuestion:", mainQuestion)
 
-    const prompt = `Ответь по-русски, чётко и по делу на вопрос: "${mainQuestion}".`
+    const conversationHistory = conversationRef.current || []
+    
+    const contextPairs: Array<{ question: string; answer: string }> = []
+    let currentUserMsg: { role: "user" | "assistant"; text: string } | null = null
+    
+    for (let i = conversationHistory.length - 1; i >= 0; i--) {
+      const msg = conversationHistory[i]
+      
+      if (msg.role === "assistant" && currentUserMsg) {
+        const msgNormalized = normalizeQuestion(currentUserMsg.text.trim())
+        if (msgNormalized !== normalizedQuestion) {
+          contextPairs.unshift({
+            question: currentUserMsg.text.trim(),
+            answer: msg.text.trim()
+          })
+        }
+        currentUserMsg = null
+        if (contextPairs.length >= 3) break
+      } else if (msg.role === "user") {
+        const msgNormalized = normalizeQuestion(msg.text.trim())
+        if (msgNormalized !== normalizedQuestion) {
+          currentUserMsg = msg
+        }
+      }
+    }
+    
+    let contextPrompt = ""
+    
+    if (contextPairs.length > 0) {
+      contextPrompt = "\n\nКонтекст предыдущего диалога (последние вопросы и ответы):\n"
+      
+      contextPairs.forEach((pair, idx) => {
+        contextPrompt += `${idx + 1}. Вопрос: ${pair.question}\n   Ответ: ${pair.answer}\n`
+        if (idx < contextPairs.length - 1) {
+          contextPrompt += "\n"
+        }
+      })
+      
+      contextPrompt += "\nТекущий вопрос (на который нужно ответить):"
+    }
+
+    const prompt = `Ты помощник на собеседовании. Ответь по-русски, чётко и по делу на вопрос собеседника.${contextPrompt}\n"${mainQuestion}"\n\nУчти контекст предыдущих вопросов и ответов, особенно если текущий вопрос является уточнением или подвопросом к предыдущим. Дай развернутый и полезный ответ, который поможет собеседнику.`
 
     console.log("[Assist] final prompt:", prompt)
 
