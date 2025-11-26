@@ -46,6 +46,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
   const vadIntervalRef = useRef<number | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const transcriptionCleanupRef = useRef<(() => void) | null>(null)
+  const lastLoggedInterimRef = useRef<string>("")
 
   const persistDeviceId = useCallback((id: string) => {
     try {
@@ -294,7 +295,40 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         if ((window as any)?.electronAPI?.onTranscriptionInterim) {
           const cleanup = (window as any).electronAPI.onTranscriptionInterim((data: { text: string }) => {
             if (data?.text) {
-              console.log("[VoiceRecorder] transcription interim:", data.text)
+              const incomingRaw = data.text.trim()
+              if (incomingRaw) {
+                const normalize = (s: string) =>
+                  s
+                    .toLowerCase()
+                    .replace(/\s+/g, " ")
+                    .trim()
+
+                const prevRaw = lastLoggedInterimRef.current
+                const incomingNorm = normalize(incomingRaw)
+                const prevNorm = normalize(prevRaw || "")
+
+                let shouldLog = true
+
+                if (incomingNorm === prevNorm) {
+                  shouldLog = false
+                } else if (
+                  prevNorm &&
+                  incomingNorm.startsWith(prevNorm) &&
+                  incomingNorm.length - prevNorm.length < 80
+                ) {
+                  // Сервер прислал почти то же самое, только с маленьким приращением —
+                  // в лог не пишем, чтобы не заспамить консоль и файл.
+                  shouldLog = false
+                }
+
+                if (shouldLog) {
+                  // Храним и логируем только последние ~200 символов, чтобы не раздувать логи
+                  const tail = incomingRaw.length > 200 ? incomingRaw.slice(-200) : incomingRaw
+                  lastLoggedInterimRef.current = incomingNorm
+                  console.log("[VoiceRecorder] transcription interim:", tail)
+                }
+              }
+
               onResult({ text: data.text, timestamp: Date.now(), isResponse: false })
             }
           })
