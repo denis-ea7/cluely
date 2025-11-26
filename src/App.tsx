@@ -385,8 +385,32 @@ const App: React.FC = () => {
   const appendTranscript = useCallback((entry: { speaker: "user" | "assistant"; text: string }) => {
     if (!entry.text?.trim()) return
     const clean = entry.text.trim()
+
     if (entry.speaker === "user") {
       const norm = normalizeQuestion(clean)
+      const prevTranscript = transcriptRef.current || []
+      const lastLine = prevTranscript[prevTranscript.length - 1]
+
+      if (lastLine) {
+        const existingText = lastLine.replace(/^Пользователь:\s*/i, "").trim()
+        const normExisting = normalizeQuestion(existingText)
+        const minLen = Math.min(normExisting.length, norm.length)
+        const samePrefix = minLen > 0 && norm.slice(0, minLen) === normExisting.slice(0, minLen)
+
+        if (samePrefix) {
+          const updated = [...prevTranscript]
+          updated[updated.length - 1] = `Пользователь: ${clean}`
+          transcriptRef.current = updated
+          setTranscript(updated)
+          conversationRef.current = [...conversationRef.current, { role: "user", text: clean }]
+          recentQuestionsRef.current = [
+            ...recentQuestionsRef.current.slice(0, -1),
+            norm
+          ]
+          return
+        }
+      }
+
       const recent = recentQuestionsRef.current
       const isSameOrSubset = recent.some((q) => {
         if (!q) return false
@@ -395,13 +419,13 @@ const App: React.FC = () => {
         return norm.includes(q) || q.includes(norm)
       })
       if (isSameOrSubset) return
+
       recentQuestionsRef.current = [...recent.slice(-4), norm]
-      setTranscript((prev) => {
-        const next = [...prev, `Пользователь: ${clean}`]
-        transcriptRef.current = next
-        return next
-      })
+      const next = [...prevTranscript, `Пользователь: ${clean}`]
+      transcriptRef.current = next
+      setTranscript(next)
     }
+
     conversationRef.current = [...conversationRef.current, { role: entry.speaker, text: clean }]
   }, [])
 
