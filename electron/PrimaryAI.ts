@@ -299,10 +299,25 @@ export class PrimaryAI {
   
     const sendChunk = (pcmChunk: Buffer) => {
       if (isClosing) return
+      
       if (isOpen && ws.readyState === WebSocket.OPEN) {
-        ws.send(pcmChunk)
+        try {
+          if (ws.bufferedAmount > 1024 * 1024) {
+            if (pendingChunks.length < 50) {
+              pendingChunks.push(pcmChunk)
+            }
+            return
+          }
+          ws.send(pcmChunk)
+        } catch (err) {
+          if (pendingChunks.length < 50) {
+            pendingChunks.push(pcmChunk)
+          }
+        }
       } else {
-        pendingChunks.push(pcmChunk)
+        if (pendingChunks.length < 100) {
+          pendingChunks.push(pcmChunk)
+        }
       }
     }
   

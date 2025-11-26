@@ -248,10 +248,38 @@ export function initializeIpcHandlers(appState: AppState): void {
         throw new Error("PrimaryAI not configured")
       }
 
+      let processingInterim = false
+      let lastInterimTime = 0
+      let pendingInterimText = ""
+
       const stream = primary.createTranscriptionStream(
         (text: string) => {
-          
-          event.sender.send("transcription-interim", { text })
+          const now = Date.now()
+          if (processingInterim || (now - lastInterimTime < 200)) {
+            pendingInterimText = text
+            return
+          }
+          processingInterim = true
+          lastInterimTime = now
+          const textToSend = pendingInterimText || text
+          pendingInterimText = ""
+
+          try {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send("transcription-interim", { text: textToSend })
+            }
+          } catch (err) {
+            console.error("[IPC] Error sending transcription-interim:", err)
+          } finally {
+            setTimeout(() => {
+              processingInterim = false
+              if (pendingInterimText && !event.sender.isDestroyed()) {
+                const delayedText = pendingInterimText
+                pendingInterimText = ""
+                event.sender.send("transcription-interim", { text: delayedText })
+              }
+            }, 200)
+          }
         },
         (error: Error) => {
           event.sender.send("transcription-error", { error: error.message })
@@ -272,14 +300,22 @@ export function initializeIpcHandlers(appState: AppState): void {
       const webContentsId = event.sender.id
       const stream = activeTranscriptionStreams.get(webContentsId)
       if (!stream) {
-        throw new Error("Transcription stream not started")
+        return { success: false, error: "Transcription stream not started" }
       }
       const pcmBuffer = Buffer.from(pcmBase64, "base64")
-      stream.sendChunk(pcmBuffer)
+      
+      setImmediate(() => {
+        try {
+          stream.sendChunk(pcmBuffer)
+        } catch (err) {
+          console.error("[IPC] Error in sendChunk:", err)
+        }
+      })
+      
       return { success: true }
     } catch (error: any) {
       console.error("Error sending transcription chunk:", error)
-      throw error
+      return { success: false, error: error.message }
     }
   })
 
