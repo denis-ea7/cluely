@@ -151,7 +151,6 @@ const App: React.FC = () => {
     async () => {
       try {
         const info = await window.electronAPI.getPremiumInfo?.()
-        console.log("[App] Premium info:", info)
         return info
       } catch (e) {
         console.error("[App] Error getting premium info:", e)
@@ -159,7 +158,7 @@ const App: React.FC = () => {
       }
     },
     {
-      refetchInterval: 1000,
+      refetchInterval: 100000,
       enabled: !!token,
       staleTime: 0
     }
@@ -489,6 +488,8 @@ const App: React.FC = () => {
     refreshDevices: refreshVoiceDevices,
     toggleRecording: toggleVoiceRecording,
     stopRecording: stopVoiceRecording,
+    startRecording: startVoiceRecording,
+    closeTranscriptionStream: closeVoiceTranscriptionStream,
     error: voiceRecorderError
   } = useVoiceRecorder({
     onResult: handleVoiceResult,
@@ -499,6 +500,12 @@ const App: React.FC = () => {
     if (chatInFlightRef.current) {
       console.log("[Assist] already in flight, skipping")
       return
+    }
+
+    if (isVoiceRecording) {
+      console.log("[Assist] Closing transcription stream...")
+      await closeVoiceTranscriptionStream()
+      await new Promise(resolve => setTimeout(resolve, 300))
     }
 
     const transcriptLines = transcriptRef.current || []
@@ -566,7 +573,7 @@ const App: React.FC = () => {
     } finally {
       chatInFlightRef.current = false
     }
-  }, [appendTranscript, askStream])
+  }, [appendTranscript, askStream, isVoiceRecording, closeVoiceTranscriptionStream])
 
 
   const selectVoiceDevice = useCallback(

@@ -46,7 +46,13 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
   const vadIntervalRef = useRef<number | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const transcriptionCleanupRef = useRef<(() => void) | null>(null)
-  const lastLoggedInterimRef = useRef<string>("")
+  const lastChunkSentAtRef = useRef<number>(0)
+  const lastInterimAtRef = useRef<number>(0)
+  const pendingInterimRef = useRef<string>("")
+  const interimDebounceTimerRef = useRef<number | null>(null)
+  const pcmBufferRef = useRef<Int16Array[]>([])
+  const pcmBufferTimerRef = useRef<number | null>(null)
+  const isSendingPcmRef = useRef<boolean>(false)
 
   const persistDeviceId = useCallback((id: string) => {
     try {
@@ -103,6 +109,19 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       transcriptionCleanupRef.current()
       transcriptionCleanupRef.current = null
     }
+    if (interimDebounceTimerRef.current) {
+      window.clearTimeout(interimDebounceTimerRef.current)
+      interimDebounceTimerRef.current = null
+    }
+    if (pcmBufferTimerRef.current) {
+      window.clearTimeout(pcmBufferTimerRef.current)
+      pcmBufferTimerRef.current = null
+    }
+    lastChunkSentAtRef.current = 0
+    lastInterimAtRef.current = 0
+    pendingInterimRef.current = ""
+    pcmBufferRef.current = []
+    isSendingPcmRef.current = false
     
     if ((window as any)?.electronAPI?.stopTranscriptionStream) {
       ;(window as any).electronAPI.stopTranscriptionStream().catch((err: any) => {
@@ -115,9 +134,64 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
   }, [])
 
   
-  const sendPcmChunk = useCallback(async (audioData: Float32Array, sampleRate: number) => {
+  const flushPcmBuffer = useCallback(async () => {
+    if (isSendingPcmRef.current || pcmBufferRef.current.length === 0) {
+      return
+    }
+
+    const chunks = pcmBufferRef.current.splice(0)
+    if (chunks.length === 0) return
+
+    isSendingPcmRef.current = true
+    const now = performance.now()
+    
+    if (now - lastChunkSentAtRef.current < 150) {
+      pcmBufferRef.current.unshift(...chunks)
+      isSendingPcmRef.current = false
+      return
+    }
+    lastChunkSentAtRef.current = now
+
     try {
-      
+      let totalLength = 0
+      for (const chunk of chunks) {
+        totalLength += chunk.length
+      }
+
+      const combined = new Int16Array(totalLength)
+      let offset = 0
+      for (const chunk of chunks) {
+        combined.set(chunk, offset)
+        offset += chunk.length
+      }
+
+      const bytes = new Uint8Array(combined.buffer)
+      let binary = ""
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[])
+      }
+      const base64 = btoa(binary)
+
+      if ((window as any)?.electronAPI?.sendTranscriptionChunk) {
+        ;(window as any).electronAPI.sendTranscriptionChunk(base64).catch((err: any) => {
+          console.error("[VoiceRecorder] sendTranscriptionChunk error:", err)
+        })
+      }
+    } catch (err) {
+      console.error("[VoiceRecorder] flushPcmBuffer error:", err)
+    } finally {
+      setTimeout(() => {
+        isSendingPcmRef.current = false
+        if (pcmBufferRef.current.length > 0) {
+          flushPcmBuffer()
+        }
+      }, 150)
+    }
+  }, [])
+
+  const sendPcmChunk = useCallback((audioData: Float32Array, sampleRate: number) => {
+    try {
       const dstRate = 16000
       const ratio = sampleRate / dstRate
       const outLen = Math.max(1, Math.floor(audioData.length / ratio))
@@ -129,28 +203,32 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         const t = s - i0
         resampled[i] = audioData[i0] * (1 - t) + audioData[i1] * t
       }
-      
+
       const pcm = new Int16Array(resampled.length)
       for (let i = 0; i < resampled.length; i++) {
         const x = Math.max(-1, Math.min(1, resampled[i]))
         pcm[i] = x < 0 ? x * 0x8000 : x * 0x7fff
       }
-      
-      const bytes = new Uint8Array(pcm.buffer)
-      let binary = ""
-      const CHUNK = 0x8000
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[])
+
+      if (pcmBufferRef.current.length > 30) {
+        const toFlush = pcmBufferRef.current.splice(0, 15)
+        flushPcmBuffer()
+        pcmBufferRef.current.unshift(...toFlush)
       }
-      const base64 = btoa(binary)
-      
-      if ((window as any)?.electronAPI?.sendTranscriptionChunk) {
-        await (window as any).electronAPI.sendTranscriptionChunk(base64)
+
+      pcmBufferRef.current.push(pcm)
+
+      if (pcmBufferTimerRef.current) {
+        clearTimeout(pcmBufferTimerRef.current)
       }
+
+      pcmBufferTimerRef.current = window.setTimeout(() => {
+        flushPcmBuffer()
+      }, 250)
     } catch (err) {
       console.error("[VoiceRecorder] sendPcmChunk error:", err)
     }
-  }, [])
+  }, [flushPcmBuffer])
 
   const refreshDevices = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices) return
@@ -220,13 +298,24 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     rafRef.current = requestAnimationFrame(tick)
   }, [])
 
-  const startRecording = useCallback(async () => {
-    if (isRecording) return
+  const startRecording = useCallback(async (force: boolean = false) => {
+    if (recordingActiveRef.current && !force) {
+      console.log("[VoiceRecorder] Already recording, skipping start")
+      return
+    }
     if (typeof navigator === "undefined" || !(navigator.mediaDevices?.getUserMedia)) {
       setError("Микрофон не поддерживается в этой среде.")
       return
     }
     setError(null)
+    
+    if (recordingActiveRef.current && force) {
+      console.log("[VoiceRecorder] Force restart: stopping current recording first")
+      recordingActiveRef.current = false
+      resetStream()
+      setIsRecording(false)
+      await new Promise(resolve => setTimeout(resolve, 300))
+    }
     try {
       const constraints: MediaStreamConstraints =
         selectedDeviceId && selectedDeviceId !== "default"
@@ -274,9 +363,11 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
               mono = new Float32Array(ch0)
             }
             
-            sendPcmChunk(mono, ctx.sampleRate).catch((err) => {
+            try {
+              sendPcmChunk(mono, ctx.sampleRate)
+            } catch (err) {
               console.error("[VoiceRecorder] sendPcmChunk failed:", err)
-            })
+            }
           }
           source.connect(processor)
           processor.connect(ctx.destination) 
@@ -294,43 +385,31 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         
         if ((window as any)?.electronAPI?.onTranscriptionInterim) {
           const cleanup = (window as any).electronAPI.onTranscriptionInterim((data: { text: string }) => {
-            if (data?.text) {
-              const incomingRaw = data.text.trim()
-              if (incomingRaw) {
-                const normalize = (s: string) =>
-                  s
-                    .toLowerCase()
-                    .replace(/\s+/g, " ")
-                    .trim()
+            if (!data?.text) return
 
-                const prevRaw = lastLoggedInterimRef.current
-                const incomingNorm = normalize(incomingRaw)
-                const prevNorm = normalize(prevRaw || "")
-
-                let shouldLog = true
-
-                if (incomingNorm === prevNorm) {
-                  shouldLog = false
-                } else if (
-                  prevNorm &&
-                  incomingNorm.startsWith(prevNorm) &&
-                  incomingNorm.length - prevNorm.length < 80
-                ) {
-                  // Сервер прислал почти то же самое, только с маленьким приращением —
-                  // в лог не пишем, чтобы не заспамить консоль и файл.
-                  shouldLog = false
-                }
-
-                if (shouldLog) {
-                  // Храним и логируем только последние ~200 символов, чтобы не раздувать логи
-                  const tail = incomingRaw.length > 200 ? incomingRaw.slice(-200) : incomingRaw
-                  lastLoggedInterimRef.current = incomingNorm
-                  console.log("[VoiceRecorder] transcription interim:", tail)
-                }
-              }
-
-              onResult({ text: data.text, timestamp: Date.now(), isResponse: false })
+            const now = performance.now()
+            if (now - lastInterimAtRef.current < 200) {
+              pendingInterimRef.current = data.text.trim()
+              return
             }
+            lastInterimAtRef.current = now
+
+            const incomingRaw = data.text.trim()
+            if (!incomingRaw) return
+
+            pendingInterimRef.current = incomingRaw
+
+            if (interimDebounceTimerRef.current) {
+              window.clearTimeout(interimDebounceTimerRef.current)
+            }
+
+            interimDebounceTimerRef.current = window.setTimeout(() => {
+              const textToProcess = pendingInterimRef.current
+              if (textToProcess) {
+                onResult({ text: textToProcess, timestamp: Date.now(), isResponse: false })
+                pendingInterimRef.current = ""
+              }
+            }, 200)
           })
           transcriptionCleanupRef.current = cleanup
         }
@@ -365,11 +444,86 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     }
   }, [isRecording, resetStream, selectedDeviceId, sendPcmChunk, startLevelTracking, onResult])
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
     recordingActiveRef.current = false
+    
+    if (pcmBufferTimerRef.current) {
+      window.clearTimeout(pcmBufferTimerRef.current)
+      pcmBufferTimerRef.current = null
+    }
+    
+    let attempts = 0
+    while (pcmBufferRef.current.length > 0 && attempts < 10) {
+      await flushPcmBuffer()
+      await new Promise(resolve => setTimeout(resolve, 50))
+      attempts++
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 150))
+    
     resetStream()
     setIsRecording(false)
-  }, [resetStream])
+  }, [resetStream, flushPcmBuffer])
+
+  const closeTranscriptionStream = useCallback(async () => {
+    if (transcriptionCleanupRef.current) {
+      transcriptionCleanupRef.current()
+      transcriptionCleanupRef.current = null
+    }
+    if (interimDebounceTimerRef.current) {
+      window.clearTimeout(interimDebounceTimerRef.current)
+      interimDebounceTimerRef.current = null
+    }
+    lastInterimAtRef.current = 0
+    pendingInterimRef.current = ""
+    
+    if ((window as any)?.electronAPI?.stopTranscriptionStream) {
+      await (window as any).electronAPI.stopTranscriptionStream().catch((err: any) => {
+        console.warn("[VoiceRecorder] Error stopping transcription stream:", err)
+      })
+    }
+
+    if (recordingActiveRef.current && (window as any)?.electronAPI?.startTranscriptionStream) {
+      await (window as any).electronAPI.startTranscriptionStream()
+      
+      if ((window as any)?.electronAPI?.onTranscriptionInterim) {
+        const cleanup = (window as any).electronAPI.onTranscriptionInterim((data: { text: string }) => {
+          if (!data?.text) return
+
+          const now = performance.now()
+          if (now - lastInterimAtRef.current < 200) {
+            pendingInterimRef.current = data.text.trim()
+            return
+          }
+          lastInterimAtRef.current = now
+
+          const incomingRaw = data.text.trim()
+          if (!incomingRaw) return
+
+          pendingInterimRef.current = incomingRaw
+
+          if (interimDebounceTimerRef.current) {
+            window.clearTimeout(interimDebounceTimerRef.current)
+          }
+
+          interimDebounceTimerRef.current = window.setTimeout(() => {
+            const textToProcess = pendingInterimRef.current
+            if (textToProcess) {
+              onResult({ text: textToProcess, timestamp: Date.now(), isResponse: false })
+              pendingInterimRef.current = ""
+            }
+          }, 200)
+        })
+        transcriptionCleanupRef.current = cleanup
+      }
+      
+      if ((window as any)?.electronAPI?.onTranscriptionError) {
+        (window as any).electronAPI.onTranscriptionError((data: { error: string }) => {
+          console.error("[VoiceRecorder] transcription error:", data.error)
+        })
+      }
+    }
+  }, [onResult])
 
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
@@ -405,6 +559,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     startRecording,
     stopRecording,
     toggleRecording,
+    closeTranscriptionStream,
     error
   }
 }
