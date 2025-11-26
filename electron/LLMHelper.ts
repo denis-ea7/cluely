@@ -490,6 +490,57 @@ export class LLMHelper {
     return full
   }
 
+  public async chatWithImage(message: string, imagePath: string): Promise<string> {
+    try {
+      const imagePart = await this.fileToGenerativePart(imagePath)
+      const composedPrompt = `${this.systemPrompt}\n\n${message}`
+      
+      if (this.useOllama) {
+        return this.callOllama(composedPrompt)
+      } else if (this.geminiKeys.length > 0 || this.model) {
+        try {
+          const result = await this.withGeminiRetry(m => m.generateContent([composedPrompt, imagePart]))
+          const response = await result.response
+          return response.text()
+        } catch (err: any) {
+          const msg = String(err?.message || err)
+          if (msg.includes("User location is not supported")) {
+            console.warn("[LLMHelper] Gemini blocked by region; attempting Ollama fallback...")
+            try {
+              const available = await this.checkOllamaAvailable()
+              if (!available) {
+                throw new Error("Gemini недоступен в вашем регионе. Запустите Ollama (ollama serve) и установите модель: 'ollama pull llama3.2', затем попробуйте снова.")
+              }
+              const models = await this.getOllamaModels()
+              if (models.length > 0 && !models.includes(this.ollamaModel)) {
+                this.ollamaModel = models[0]
+              }
+              this.useOllama = true
+              return await this.callOllama(composedPrompt)
+            } catch (fallbackError: any) {
+              throw fallbackError
+            }
+          }
+          throw err
+        }
+      } else {
+        throw new Error("No LLM provider configured")
+      }
+    } catch (error) {
+      console.error("[LLMHelper] Error in chatWithImage:", error)
+      throw error
+    }
+  }
+
+  public async chatStreamWithImage(message: string, imagePath: string, onDelta: (delta: string) => void): Promise<string> {
+    if (this.primary) {
+      console.warn("[LLMHelper] PrimaryAI does not support images, using Gemini for image chat")
+    }
+    const full = await this.chatWithImage(message, imagePath)
+    try { onDelta(full) } catch {}
+    return full
+  }
+
   public isUsingOllama(): boolean {
     return this.useOllama;
   }

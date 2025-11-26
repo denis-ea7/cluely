@@ -28,7 +28,8 @@ interface ElectronAPI {
 
   onUnauthorized: (callback: () => void) => () => void
   onDebugError: (callback: (error: string) => void) => () => void
-  takeScreenshot: () => Promise<void>
+  takeScreenshot: () => Promise<{ path: string; preview: string }>
+  startChatStream: (message: string, imagePath?: string) => Promise<{ ok: boolean }>
   moveWindowLeft: () => Promise<void>
   moveWindowRight: () => Promise<void>
   moveWindowUp: () => Promise<void>
@@ -211,7 +212,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("transcription-error", subscription)
   },
   
-  startChatStream: (message: string) => ipcRenderer.invoke("chat-stream-start", message),
+  startChatStream: (message: string, imagePath?: string) => ipcRenderer.invoke("chat-stream-start", message, imagePath),
   onChatDelta: (callback: (data: { delta: string }) => void) => {
     const subscription = (_: any, data: { delta: string }) => callback(data)
     ipcRenderer.on("chat-stream-delta", subscription)
