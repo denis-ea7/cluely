@@ -33,14 +33,20 @@ export function initializeIpcHandlers(appState: AppState): void {
   })
 
   
-  ipcMain.handle("chat-stream-start", async (event, message: string) => {
+  ipcMain.handle("chat-stream-start", async (event, message: string, imagePath?: string) => {
     try {
       const helper = appState.processingHelper.getLLMHelper()
-      const final = await helper.chatStream(message, (delta: string) => {
-        try {
-          event.sender.send("chat-stream-delta", { delta })
-        } catch {}
-      })
+      const final = imagePath 
+        ? await helper.chatStreamWithImage(message, imagePath, (delta: string) => {
+            try {
+              event.sender.send("chat-stream-delta", { delta })
+            } catch {}
+          })
+        : await helper.chatStream(message, (delta: string) => {
+            try {
+              event.sender.send("chat-stream-delta", { delta })
+            } catch {}
+          })
       event.sender.send("chat-stream-complete", { text: final })
       return { ok: true }
     } catch (error: any) {
@@ -53,7 +59,28 @@ export function initializeIpcHandlers(appState: AppState): void {
   ipcMain.handle("take-screenshot", async () => {
     try {
       const screenshotPath = await appState.takeScreenshot()
-      const preview = await appState.getImagePreview(screenshotPath)
+      
+      let preview = ""
+      let attempts = 0
+      const maxAttempts = 10
+      
+      while (attempts < maxAttempts) {
+        try {
+          const fs = require("fs")
+          if (fs.existsSync(screenshotPath)) {
+            preview = await appState.getImagePreview(screenshotPath)
+            break
+          }
+        } catch (err) {
+          if (attempts === maxAttempts - 1) {
+            console.warn("[IPC] Failed to read preview after attempts, using empty preview")
+            preview = ""
+          }
+        }
+        attempts++
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      
       return { path: screenshotPath, preview }
     } catch (error) {
       console.error("Error taking screenshot:", error)

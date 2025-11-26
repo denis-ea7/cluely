@@ -81,7 +81,24 @@ export class ScreenshotHelper {
 
       if (this.view === "queue") {
         screenshotPath = path.join(this.screenshotDir, `${uuidv4()}.png`)
-        await screenshot({ filename: screenshotPath })
+        
+        try {
+          const imageBuffer = await screenshot()
+          await fs.promises.writeFile(screenshotPath, imageBuffer)
+        } catch (err) {
+          console.error("[ScreenshotHelper] Error taking screenshot:", err)
+          throw new Error(`Failed to capture screenshot: ${err.message}`)
+        }
+
+        let attempts = 0
+        while (attempts < 20 && !fs.existsSync(screenshotPath)) {
+          await new Promise(resolve => setTimeout(resolve, 50))
+          attempts++
+        }
+
+        if (!fs.existsSync(screenshotPath)) {
+          throw new Error(`Screenshot file was not created: ${screenshotPath}`)
+        }
 
         this.screenshotQueue.push(screenshotPath)
         if (this.screenshotQueue.length > this.MAX_SCREENSHOTS) {
@@ -96,7 +113,24 @@ export class ScreenshotHelper {
         }
       } else {
         screenshotPath = path.join(this.extraScreenshotDir, `${uuidv4()}.png`)
-        await screenshot({ filename: screenshotPath })
+        
+        try {
+          const imageBuffer = await screenshot()
+          await fs.promises.writeFile(screenshotPath, imageBuffer)
+        } catch (err) {
+          console.error("[ScreenshotHelper] Error taking screenshot:", err)
+          throw new Error(`Failed to capture screenshot: ${err.message}`)
+        }
+
+        let attempts = 0
+        while (attempts < 20 && !fs.existsSync(screenshotPath)) {
+          await new Promise(resolve => setTimeout(resolve, 50))
+          attempts++
+        }
+
+        if (!fs.existsSync(screenshotPath)) {
+          throw new Error(`Screenshot file was not created: ${screenshotPath}`)
+        }
 
         this.extraScreenshotQueue.push(screenshotPath)
         if (this.extraScreenshotQueue.length > this.MAX_SCREENSHOTS) {

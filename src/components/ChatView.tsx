@@ -12,7 +12,9 @@
     externalAnswer?: string
     onAnswered?: (payload: { question?: string; answer: string; type: "assist" | "custom" }) => void
     onAssistClick?: () => Promise<void>
-  }> = ({ answers, onAsk, height, externalAnswer, onAnswered, onAssistClick }) => {
+    useScreen?: boolean
+    onUseScreenChange?: (value: boolean) => void
+  }> = ({ answers, onAsk, height, externalAnswer, onAnswered, onAssistClick, useScreen = false, onUseScreenChange }) => {
     const [question, setQuestion] = useState("")
     const [loading, setLoading] = useState(false)
     const listRef = useRef<HTMLDivElement | null>(null)
@@ -82,6 +84,15 @@
             >
               <Sparkles className="h-4 w-4 mr-2" />
               Assist
+            </Button>
+            <Button
+              onClick={() => onUseScreenChange?.(!useScreen)}
+              variant={useScreen ? "default" : "outline"}
+              className={useScreen ? "bg-green-600 hover:bg-green-700 text-white" : "border-white/30 text-white hover:bg-white/20"}
+              size="sm"
+              title="Включить отправку скриншота экрана вместе с запросом"
+            >
+              Use Screen
             </Button>
           <Input
             value={question}

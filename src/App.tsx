@@ -32,7 +32,7 @@ declare global {
       ) => () => void
       onProcessingNoScreenshots: (callback: () => void) => () => void
       onResetView: (callback: () => void) => () => void
-      takeScreenshot: () => Promise<void>
+      takeScreenshot: () => Promise<{ path: string; preview: string }>
 
       deleteScreenshot: (
         path: string
@@ -78,7 +78,7 @@ declare global {
       openPremiumPurchase: () => Promise<{ success: boolean }>
       refreshPremiumInfo: () => Promise<{ isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }>
       onPremiumStatusUpdated: (callback: (info: { isPremium: boolean; premiumUntil: string | null; timeRemaining: number | null }) => void) => () => void
-      startChatStream: (message: string) => Promise<void>
+      startChatStream: (message: string, imagePath?: string) => Promise<{ ok: boolean }>
       onChatDelta: (callback: (data: { delta: string }) => void) => () => void
       onChatComplete: (callback: (data: { text: string }) => void) => () => void
     }
@@ -120,6 +120,7 @@ const App: React.FC = () => {
   const [lastAssistantAnswer, setLastAssistantAnswer] = useState("")
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [liveInterimText, setLiveInterimText] = useState<string>("")
+  const [useScreen, setUseScreen] = useState<boolean>(false)
   const transcriptRef = useRef<string[]>([])
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([])
   const floatingRef = useRef<HTMLDivElement>(null)
@@ -344,7 +345,7 @@ const App: React.FC = () => {
   }
 
   
-  const askStream = useCallback(async (message: string): Promise<string> => {
+  const askStream = useCallback(async (message: string, imagePath?: string): Promise<string> => {
     let acc = ""
     setLastAssistantAnswer("")
     
@@ -370,7 +371,7 @@ const App: React.FC = () => {
     const unDone = window.electronAPI.onChatComplete?.(({ text }) => {
       acc = text || acc
     })
-    await window.electronAPI.startChatStream?.(message)
+    await window.electronAPI.startChatStream?.(message, imagePath)
     
     setTimeout(() => {
       unDelta && unDelta()
@@ -599,10 +600,22 @@ const App: React.FC = () => {
     appendTranscript({ speaker: "user", text: mainQuestion })
     conversationRef.current = [...conversationRef.current, { role: "user", text: mainQuestion }]
     
+    let screenshotPath: string | undefined = undefined
+    if (useScreen) {
+      try {
+        console.log("[Assist] Taking screenshot for context...")
+        const screenshotResult = await window.electronAPI.takeScreenshot()
+        screenshotPath = screenshotResult.path
+        console.log("[Assist] Screenshot taken:", screenshotPath)
+      } catch (err) {
+        console.error("[Assist] Failed to take screenshot:", err)
+      }
+    }
+    
     try {
       setAnswers((prev) => (prev.length === 0 ? [""] : prev))
       streamingAssistantIndexRef.current = null
-      const response = await askStream(prompt)
+      const response = await askStream(prompt, screenshotPath)
       
       conversationRef.current = [...conversationRef.current, { role: "assistant", text: response }]
     } catch (err: any) {
@@ -614,8 +627,49 @@ const App: React.FC = () => {
     } finally {
       chatInFlightRef.current = false
     }
-  }, [appendTranscript, askStream, isVoiceRecording, closeVoiceTranscriptionStream])
+  }, [appendTranscript, askStream, isVoiceRecording, closeVoiceTranscriptionStream, useScreen])
 
+  const testScreenshot = useCallback(async () => {
+    try {
+      console.log("[Test] Taking screenshot...")
+      const screenshotResult = await window.electronAPI.takeScreenshot()
+      console.log("[Test] Screenshot taken:", screenshotResult.path)
+      
+      const testPrompt = "Что изображено на этом скриншоте? Опиши подробно всё, что видишь."
+      console.log("[Test] Sending to AI with prompt:", testPrompt)
+      
+      setAnswers((prev) => (prev.length === 0 ? [""] : prev))
+      streamingAssistantIndexRef.current = null
+      const response = await askStream(testPrompt, screenshotResult.path)
+      
+      console.log("[Test] AI Response:", response)
+      setAnswers((prev) => {
+        const updated = [...prev]
+        if (updated.length > 0 && streamingAssistantIndexRef.current !== null) {
+          updated[streamingAssistantIndexRef.current] = response
+        } else {
+          updated.push(response)
+        }
+        return updated
+      })
+      setLastAssistantAnswer(response)
+      
+      return response
+    } catch (err: any) {
+      console.error("[Test] Error testing screenshot:", err)
+      const errorMsg = `Ошибка теста: ${err?.message || String(err)}`
+      setVoiceError(errorMsg)
+      throw err
+    }
+  }, [askStream])
+
+  useEffect(() => {
+    ;(window as any).testScreenshot = testScreenshot
+    console.log("[App] Test function available: window.testScreenshot()")
+    return () => {
+      delete (window as any).testScreenshot
+    }
+  }, [testScreenshot])
 
   const selectVoiceDevice = useCallback(
     (id: string) => {
@@ -792,6 +846,8 @@ const App: React.FC = () => {
                 externalAnswer={lastAssistantAnswer}
                 onAnswered={handleChatAnswered}
                 onAssistClick={handleAssistClick}
+                useScreen={useScreen}
+                onUseScreenChange={setUseScreen}
               />
             )}
           </div>
