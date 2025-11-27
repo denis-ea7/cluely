@@ -270,7 +270,9 @@ const App: React.FC = () => {
     const updateHeight = () => {
       if (!containerRef.current) return
       const height = containerRef.current.scrollHeight
-      const width = containerRef.current.scrollWidth
+      // Фиксированная ширина окна
+      const FIXED_WIDTH = 570
+      const width = FIXED_WIDTH
       window.electronAPI?.updateContentDimensions({ width, height })
     }
 

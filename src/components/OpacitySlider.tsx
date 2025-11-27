@@ -64,7 +64,7 @@ export const OpacitySlider: React.FC<OpacitySliderProps> = ({ onOpacityChange })
 
   return (
     <div 
-      className="fixed left-1/2 top-1/3 -translate-x-[360px] -translate-y-1/2 z-[10000] pointer-events-auto"
+      className="fixed left-4 top-1/2 -translate-y-1/2 z-[10000] pointer-events-auto"
     >
       <div
         ref={sliderRef}
