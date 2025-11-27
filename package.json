@@ -17,7 +17,8 @@
     "start": "npm run app:dev",
     "dist": "npm run app:build",
     "dist:mac": "npm run build:secure && electron-builder --mac",
-    "dist:win": "npm run build:secure && electron-builder --win"
+    "prebuild:win": "npm install --os=win32 --cpu=x64 --cpu=ia32 sharp",
+    "dist:win": "npm run prebuild:win && npm run build:secure && electron-builder --win"
   },
   "build": {
     "appId": "com.electron.meeting-notes",
