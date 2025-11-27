@@ -308,7 +308,7 @@ export class PrimaryAI {
             }
             return
           }
-          ws.send(pcmChunk)
+        ws.send(pcmChunk)
         } catch (err) {
           if (pendingChunks.length < 50) {
             pendingChunks.push(pcmChunk)
@@ -316,7 +316,7 @@ export class PrimaryAI {
         }
       } else {
         if (pendingChunks.length < 100) {
-          pendingChunks.push(pcmChunk)
+        pendingChunks.push(pcmChunk)
         }
       }
     }

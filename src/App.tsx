@@ -831,24 +831,24 @@ const App: React.FC = () => {
             ref={floatingRef}
           >
             {activeTab === "transcript" ? (
-              <div className="space-y-1">
               <TranscriptView lines={transcript} />
+            ) : (
+              <div className="space-y-1">
+                <ChatView
+                  answers={answers}
+                  onAsk={geminiAsk}
+                  externalAnswer={lastAssistantAnswer}
+                  onAnswered={handleChatAnswered}
+                  onAssistClick={handleAssistClick}
+                  useScreen={useScreen}
+                  onUseScreenChange={setUseScreen}
+                />
                 {liveInterimText && (
                   <div className="mt-1 text-xs text-muted-foreground italic">
                     {liveInterimText}
                   </div>
                 )}
               </div>
-            ) : (
-              <ChatView
-                answers={answers}
-                onAsk={geminiAsk}
-                externalAnswer={lastAssistantAnswer}
-                onAnswered={handleChatAnswered}
-                onAssistClick={handleAssistClick}
-                useScreen={useScreen}
-                onUseScreenChange={setUseScreen}
-              />
             )}
           </div>
         )}

@@ -192,7 +192,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
 
   const sendPcmChunk = useCallback((audioData: Float32Array, sampleRate: number) => {
     try {
-      const dstRate = 16000
+      const dstRate = 8000
       const ratio = sampleRate / dstRate
       const outLen = Math.max(1, Math.floor(audioData.length / ratio))
       const resampled = new Float32Array(outLen)
@@ -338,7 +338,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined
         if (AudioCtx) {
           
-          const ctx = new AudioCtx({ sampleRate: 16000 } as any)
+          const ctx = new AudioCtx({ sampleRate: 8000 } as any)
           audioContextRef.current = ctx
           const source = ctx.createMediaStreamSource(stream)
           const analyser = ctx.createAnalyser()

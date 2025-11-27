@@ -25,7 +25,7 @@ export const SummaryOverlay: React.FC<{
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 820,
-          maxWidth: "94vw",
+          maxWidth: "76vw",
           maxHeight: "76vh",
           overflowY: "auto",
           background: "rgba(17,24,39,0.95)",

@@ -87,8 +87,8 @@
             </Button>
             <Button
               onClick={() => onUseScreenChange?.(!useScreen)}
-              variant={useScreen ? "default" : "outline"}
-              className={useScreen ? "bg-green-600 hover:bg-green-700 text-white" : "border-white/30 text-white hover:bg-white/20"}
+              variant={useScreen ? "primary" : "default"}
+              className={useScreen ? "bg-blue-800    text-white" : "border-white/30 text-white "}
               size="sm"
               title="Включить отправку скриншота экрана вместе с запросом"
             >
