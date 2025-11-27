@@ -18,10 +18,39 @@
     const [question, setQuestion] = useState("")
     const [loading, setLoading] = useState(false)
     const listRef = useRef<HTMLDivElement | null>(null)
+    const prevAnswersLengthRef = useRef<number>(answers.length)
 
     useEffect(() => {
       if (!listRef.current) return
-      listRef.current.scrollTop = listRef.current.scrollHeight
+      
+      const currentLength = answers.length
+      const prevLength = prevAnswersLengthRef.current
+      
+      // Если появился новый ответ (увеличилась длина массива)
+      if (currentLength > prevLength) {
+        // Небольшая задержка, чтобы DOM успел обновиться
+        setTimeout(() => {
+          if (!listRef.current) return
+          
+          // Прокручиваем к началу последнего ответа
+          const lastCard = listRef.current.querySelector(`[data-answer-id="${currentLength - 1}"]`)
+          if (lastCard) {
+            lastCard.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 50)
+      } else if (currentLength === prevLength && currentLength > 0) {
+        // Обновление существующего ответа (стриминг)
+        // Проверяем, находился ли пользователь внизу перед обновлением
+        const container = listRef.current
+        const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50
+        
+        // Если пользователь не был внизу, не прокручиваем
+        if (!wasAtBottom) {
+          return
+        }
+      }
+      
+      prevAnswersLengthRef.current = currentLength
     }, [answers, externalAnswer])
 
     const askWholeContext = async () => {
@@ -133,7 +162,11 @@
           ) : (
             <div className="flex flex-col gap-2">
               {answers.map((text, idx) => (
-              <Card key={idx} className="bg-slate-900/90 border-slate-700/80 p-3 shadow-md">
+              <Card 
+                key={idx} 
+                data-answer-id={idx}
+                className="bg-slate-900/90 border-slate-700/80 p-3 shadow-md"
+              >
                   <div className="text-white font-medium text-sm whitespace-pre-wrap leading-relaxed">
                     Ассистент: {text}
                   </div>
