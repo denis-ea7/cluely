@@ -818,9 +818,6 @@ const App: React.FC = () => {
         {/* Главное окно полностью скрыто */}
           <ToastViewport />
 
-        {/* Плавающий оверлей всегда виден, как в Cluely */}
-        <OpacitySlider onOpacityChange={handleOpacityChange} />
-
         {!showProfile && (
           <div className="pointer-events-auto">
             <ControlBar
@@ -847,6 +844,9 @@ const App: React.FC = () => {
                 } catch {}
               }}
             />
+          <div className="fixed left-1/2 top-[70px] -translate-x-1/2 z-[9999] w-[400px] px-2 pointer-events-auto">
+            <OpacitySlider onOpacityChange={handleOpacityChange} />
+          </div>
           </div>
         )}
 
