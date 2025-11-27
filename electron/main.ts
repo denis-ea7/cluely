@@ -130,6 +130,10 @@ export class AppState {
     this.windowHelper.ensureWindowSize(minWidth, minHeight)
   }
 
+  public setWindowOpacity(opacity: number): void {
+    this.windowHelper.setWindowOpacity(opacity)
+  }
+
   public clearQueues(): void {
     this.screenshotHelper.clearQueues()
 

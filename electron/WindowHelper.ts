@@ -135,7 +135,7 @@ export class WindowHelper {
     const useFrame = false
     
     const savedState = this.stateManager.load()
-    const defaultWidth = 600
+    const defaultWidth = 300
     const defaultHeight = 700
     
     let windowWidth = savedState?.width || defaultWidth
@@ -633,5 +633,11 @@ export class WindowHelper {
       Math.round(this.currentX),
       Math.round(this.currentY)
     )
+  }
+
+  public setWindowOpacity(opacity: number): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    const clampedOpacity = Math.max(0.1, Math.min(1.0, opacity))
+    this.mainWindow.setOpacity(clampedOpacity)
   }
 }

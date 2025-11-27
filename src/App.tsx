@@ -8,6 +8,7 @@ import { ControlBar } from "./components/ControlBar"
 import { TranscriptView } from "./components/TranscriptView"
 import { ChatView } from "./components/ChatView"
 import { ProfileSettings } from "./components/ProfileSettings"
+import { OpacitySlider } from "./components/OpacitySlider"
 import { useVoiceRecorder } from "./hooks/useVoiceRecorder"
 import { cn } from "./lib/utils"
 import { Button } from "./components/ui/button"
@@ -24,6 +25,7 @@ declare global {
         width: number
         height: number
       }) => Promise<void>
+      setWindowOpacity: (opacity: number) => Promise<{ success: boolean; error?: string }>
       getScreenshots: () => Promise<Array<{ path: string; preview: string }>>
 
       onUnauthorized: (callback: () => void) => () => void
@@ -734,6 +736,25 @@ const App: React.FC = () => {
     }
   }, [sessionActive])
 
+  const handleOpacityChange = useCallback(async (opacity: number) => {
+    try {
+      await window.electronAPI.setWindowOpacity?.(opacity)
+    } catch (error) {
+      console.error("[App] Error setting window opacity:", error)
+    }
+  }, [])
+
+  useEffect(() => {
+    // Инициализация прозрачности при загрузке
+    try {
+      const saved = localStorage.getItem("windowOpacity")
+      const initialOpacity = saved ? parseFloat(saved) : 1.0
+      handleOpacityChange(initialOpacity)
+    } catch (error) {
+      console.error("[App] Error initializing window opacity:", error)
+    }
+  }, [handleOpacityChange])
+
   const startNewSession = () => {
     stopVoiceRecording()
     conversationRef.current = []
@@ -796,6 +817,8 @@ const App: React.FC = () => {
           <ToastViewport />
 
         {/* Плавающий оверлей всегда виден, как в Cluely */}
+        <OpacitySlider onOpacityChange={handleOpacityChange} />
+
         {!showProfile && (
           <div className="pointer-events-auto">
             <ControlBar
