@@ -28,6 +28,14 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   )
 
+  ipcMain.handle("set-window-opacity", async (event, opacity: number) => {
+    if (typeof opacity === "number" && opacity >= 0 && opacity <= 1) {
+      appState.setWindowOpacity(opacity)
+      return { success: true }
+    }
+    return { success: false, error: "Invalid opacity value" }
+  })
+
   ipcMain.handle("delete-screenshot", async (event, path: string) => {
     return appState.deleteScreenshot(path)
   })
