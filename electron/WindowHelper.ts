@@ -52,14 +52,14 @@ export class WindowHelper {
       workArea.width * (this.appState.getHasDebugged() ? 0.75 : 0.9)
     )
 
-    const requestedWidth = width + 32
+    const requestedWidth = width + 0
     const requestedHeight = Math.ceil(height)
 
     const newWidth = Math.min(
-      Math.max(requestedWidth, currentBounds.width),
+      requestedWidth,
       maxAllowedWidth
     )
-    const newHeight = Math.max(requestedHeight, currentBounds.height)
+    const newHeight = requestedHeight
 
     if (newWidth !== currentBounds.width || newHeight !== currentBounds.height) {
     const maxX = workArea.width - newWidth
@@ -89,8 +89,8 @@ export class WindowHelper {
     const maxAllowedWidth = Math.floor(workArea.width * 0.9)
     const maxAllowedHeight = Math.floor(workArea.height * 0.9)
 
-    const requiredWidth = minWidth + 32
-    const requiredHeight = minHeight + 32
+    const requiredWidth = minWidth + 0
+    const requiredHeight = minHeight + 0
 
     let newWidth = Math.max(bounds.width, requiredWidth)
     let newHeight = Math.max(bounds.height, requiredHeight)
