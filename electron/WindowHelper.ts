@@ -169,7 +169,7 @@ export class WindowHelper {
         preload: path.join(__dirname, "preload.js"),
         devTools: isDev
       },
-      show: false,
+      show: false, // Always start hidden, show after load
       alwaysOnTop: true,
       frame: useFrame,
       transparent: !useFrame,
@@ -306,6 +306,20 @@ export class WindowHelper {
         await this.mainWindow.loadURL(url)
         console.log(`✅ Successfully loaded URL: ${url}`)
         
+        // Windows: Force show window immediately after URL loads
+        if (process.platform === "win32") {
+          console.log("[WindowHelper] Windows: Setting up immediate window show")
+          // Show immediately
+          setTimeout(() => {
+            this.showWindowIfNeeded()
+          }, 300)
+          
+          // Also show after a bit more delay as fallback
+          setTimeout(() => {
+            this.showWindowIfNeeded()
+          }, 1000)
+        }
+        
         setTimeout(() => {
           if (this.mainWindow && !this.mainWindow.isDestroyed()) {
             this.mainWindow.webContents.executeJavaScript(`
@@ -325,18 +339,35 @@ export class WindowHelper {
 
     loadViteUrl()
 
+    // Show window when ready (for all platforms)
     this.mainWindow.once('ready-to-show', () => {
       if (this.mainWindow) {
         const savedState = this.stateManager.load()
         if (!savedState) {
-        this.centerWindow()
+          this.centerWindow()
         }
+        console.log("[WindowHelper] ready-to-show event fired, showing window")
         this.mainWindow.show()
         this.mainWindow.focus()
         this.mainWindow.setAlwaysOnTop(true)
         this.isWindowVisible = true
         console.log("Window is now visible")
         this.debouncedDetectTheme()
+      }
+    })
+    
+    // Also show when page finishes loading (Windows fallback)
+    this.mainWindow.webContents.once('did-finish-load', () => {
+      if (this.mainWindow && !this.isWindowVisible) {
+        console.log("[WindowHelper] did-finish-load fired, showing window (fallback)")
+        const savedState = this.stateManager.load()
+        if (!savedState) {
+          this.centerWindow()
+        }
+        this.mainWindow.show()
+        this.mainWindow.focus()
+        this.mainWindow.setAlwaysOnTop(true)
+        this.isWindowVisible = true
       }
     })
     
@@ -349,18 +380,31 @@ export class WindowHelper {
       }, 100)
     })
 
+    // Windows-specific: Force show after a delay if still not visible
     setTimeout(() => {
-      if (this.mainWindow && !this.isWindowVisible) {
-        console.log("Fallback: showing window after timeout")
+      if (this.mainWindow && !this.mainWindow.isDestroyed() && !this.isWindowVisible) {
+        console.log("[WindowHelper] Fallback: Force showing window after timeout (Windows workaround)")
         const savedState = this.stateManager.load()
         if (!savedState) {
           this.centerWindow()
         }
         this.mainWindow.show()
         this.mainWindow.focus()
+        this.mainWindow.setAlwaysOnTop(true)
         this.isWindowVisible = true
+        
+        // Windows: Sometimes window appears minimized, restore it
+        if (process.platform === "win32") {
+          if (this.mainWindow.isMinimized()) {
+            this.mainWindow.restore()
+            console.log("[WindowHelper] Window was minimized, restored it")
+          }
+          // Force bring to front on Windows
+          this.mainWindow.setVisibleOnAllWorkspaces(false)
+          this.mainWindow.setVisibleOnAllWorkspaces(true)
+        }
       }
-    }, 2000)
+    }, 1000)
 
     const bounds = this.mainWindow.getBounds()
     this.windowPosition = { x: bounds.x, y: bounds.y }
@@ -369,7 +413,7 @@ export class WindowHelper {
     this.currentY = bounds.y
 
     this.setupWindowListeners()
-    this.isWindowVisible = true
+    // Don't set isWindowVisible here - it will be set when window is actually shown
   }
 
   private setupWindowListeners(): void {
@@ -510,8 +554,39 @@ export class WindowHelper {
     }
 
     this.mainWindow.showInactive()
-
     this.isWindowVisible = true
+  }
+
+  private showWindowIfNeeded(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+      return
+    }
+
+    if (!this.isWindowVisible) {
+      console.log("[WindowHelper] showWindowIfNeeded: Showing window")
+      const savedState = this.stateManager.load()
+      if (!savedState) {
+        this.centerWindow()
+      }
+      
+      // On Windows, use show() instead of showInactive() for better visibility
+      if (process.platform === "win32") {
+        this.mainWindow.show()
+        this.mainWindow.focus()
+      } else {
+        this.mainWindow.showInactive()
+      }
+      
+      this.mainWindow.setAlwaysOnTop(true)
+      
+      // Windows: Ensure window is not minimized
+      if (this.mainWindow.isMinimized()) {
+        this.mainWindow.restore()
+      }
+      
+      this.isWindowVisible = true
+      console.log("[WindowHelper] Window is now visible (showWindowIfNeeded)")
+    }
   }
 
   public toggleMainWindow(): void {
