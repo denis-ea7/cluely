@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron"
+import { app, BrowserWindow, Tray, Menu, nativeImage, session, desktopCapturer, screen, dialog } from "electron"
 import { ProxyAgent, setGlobalDispatcher } from "undici"
 import dotenv from "dotenv"
 import path from "path"
@@ -9,6 +9,8 @@ import { ShortcutsHelper } from "./shortcuts"
 import { ProcessingHelper } from "./ProcessingHelper"
 import { TokenManager } from "./TokenManager"
 import { PremiumManager } from "./PremiumManager"
+
+const isDev = process.env.NODE_ENV === "development"
 
 export class AppState {
   private static instance: AppState | null = null
@@ -267,7 +269,22 @@ export class AppState {
 
 async function initializeApp() {
   try {
-    dotenv.config()
+    // Load .env from app directory (works in both dev and production)
+    const envPath = isDev 
+      ? path.join(__dirname, "../.env")
+      : path.join(process.resourcesPath, "../.env")
+    dotenv.config({ path: envPath })
+    
+    // Also try .env in the same directory as the executable (for portable Windows builds)
+    if (!isDev && process.platform === "win32") {
+      const portableEnvPath = path.join(path.dirname(process.execPath), ".env")
+      try {
+        dotenv.config({ path: portableEnvPath, override: false })
+      } catch (e) {
+        // Ignore if .env doesn't exist in portable location
+      }
+    }
+    
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.PROXY_URL
     if (proxyUrl) {
       setGlobalDispatcher(new ProxyAgent(proxyUrl))
@@ -282,18 +299,49 @@ async function initializeApp() {
   const premiumManager = new PremiumManager(tokenManager, apiUrl)
   appState.premiumManager = premiumManager
 
-  try {
-    console.log("[main] Initializing ProcessingHelper...")
-    await appState.processingHelper.initialize()
-    console.log("[main] ProcessingHelper initialized successfully")
-  } catch (e: any) {
-    console.error("[main] CRITICAL: Failed to initialize ProcessingHelper:", e.message)
-    console.error("[main] Application cannot start without keys from backend")
-    app.quit()
-    return
-  }
+  // Initialize ProcessingHelper after app is ready so window can show errors
+  let processingHelperInitialized = false
+  let processingHelperError: string | null = null
 
   app.whenReady().then(async () => {
+    // Create window first so we can show errors if needed
+    appState.createWindow()
+    appState.createTray()
+    
+    // Try to initialize ProcessingHelper
+    try {
+      console.log("[main] Initializing ProcessingHelper...")
+      await appState.processingHelper.initialize()
+      console.log("[main] ProcessingHelper initialized successfully")
+      processingHelperInitialized = true
+    } catch (e: any) {
+      const errorMsg = e?.message || String(e)
+      console.error("[main] CRITICAL: Failed to initialize ProcessingHelper:", errorMsg)
+      console.error("[main] Application cannot start without keys from backend")
+      processingHelperError = errorMsg
+      
+      // Show error dialog to user
+      const mainWindow = appState.getMainWindow()
+      if (mainWindow) {
+        dialog.showMessageBox(mainWindow, {
+          type: "error",
+          title: "Ошибка инициализации",
+          message: "Не удалось инициализировать приложение",
+          detail: `Ошибка: ${errorMsg}\n\nУбедитесь, что KEY_AGENT_URL правильно настроен и доступен.`,
+          buttons: ["Закрыть"]
+        }).then(() => {
+          app.quit()
+        })
+      } else {
+        // If window creation failed too, just quit
+        app.quit()
+      }
+      return
+    }
+
+    // Continue with normal initialization
+    appState.shortcutsHelper.registerGlobalShortcuts()
+    
     const token = tokenManager.load()
     if (token) {
       console.log("[main] Token found, starting premium session...")
@@ -472,11 +520,58 @@ async function initializeApp() {
     }
   })
 
+  // Setup display media handler for system audio capture (like original Cluely)
+  function setupDisplayMediaHandler() {
+    session.defaultSession.setDisplayMediaRequestHandler(
+      (request, callback) => {
+        desktopCapturer.getSources({ types: ["screen"] }).then((sources) => {
+          if (sources.length === 0) {
+            console.warn("[DisplayMedia] No display sources found")
+            callback({})
+            return
+          }
+
+          const displays = screen.getAllDisplays()
+          
+          // Try to find internal display first (macOS)
+          for (const display of displays) {
+            if ((display as any).internal) {
+              const source = sources.find(
+                (s) => s.display_id === String(display.id)
+              )
+              if (source) {
+                callback({ video: source, audio: "loopback" })
+                return
+              }
+            }
+          }
+
+          // Fallback to primary display
+          const primaryDisplay = screen.getPrimaryDisplay()
+          const primarySource = sources.find(
+            (s) => s.display_id === String(primaryDisplay.id)
+          )
+          if (primarySource) {
+            callback({ video: primarySource, audio: "loopback" })
+            return
+          }
+
+          // Last resort: use first available source
+          callback({ video: sources[0], audio: "loopback" })
+        }).catch((error) => {
+          console.error("[DisplayMedia] Error getting sources:", error)
+          callback({})
+        })
+      },
+      { useSystemPicker: false }
+    )
+    console.log("[DisplayMedia] Handler configured for system audio capture")
+  }
+
   app.whenReady().then(() => {
     console.log("App is ready")
-    appState.createWindow()
-    appState.createTray()
-    appState.shortcutsHelper.registerGlobalShortcuts()
+    setupDisplayMediaHandler()
+    // Window creation moved above to show initialization errors
   })
 
   app.on("activate", () => {

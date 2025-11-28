@@ -2,10 +2,25 @@ import { AppState } from "./main"
 import { LLMHelper } from "./LLMHelper"
 import { KeyClient, KeysResponse } from "./KeyClient"
 import dotenv from "dotenv"
+import path from "path"
 
-dotenv.config()
-
+// Load .env from app directory (works in both dev and production)
 const isDev = process.env.NODE_ENV === "development"
+// In production, .env should be in resources folder or next to executable
+const envPath = isDev 
+  ? path.join(__dirname, "../../.env")
+  : path.join((process as any).resourcesPath || path.dirname(process.execPath), ".env")
+dotenv.config({ path: envPath })
+
+// Also try .env in the same directory as the executable (for portable Windows builds)
+if (!isDev && process.platform === "win32") {
+  try {
+    const portableEnvPath = path.join(path.dirname(process.execPath), ".env")
+    dotenv.config({ path: portableEnvPath, override: false })
+  } catch (e) {
+    // Ignore if .env doesn't exist in portable location
+  }
+}
 const isDevTest = process.env.IS_DEV_TEST === "true"
 const MOCK_API_WAIT_TIME = Number(process.env.MOCK_API_WAIT_TIME) || 500
 
