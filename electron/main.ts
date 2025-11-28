@@ -323,15 +323,19 @@ async function initializeApp() {
       // Show error dialog to user
       const mainWindow = appState.getMainWindow()
       if (mainWindow) {
-        dialog.showMessageBox(mainWindow, {
-          type: "error",
-          title: "Ошибка инициализации",
-          message: "Не удалось инициализировать приложение",
-          detail: `Ошибка: ${errorMsg}\n\nУбедитесь, что KEY_AGENT_URL правильно настроен и доступен.`,
-          buttons: ["Закрыть"]
-        }).then(() => {
+        try {
+          await dialog.showMessageBox(mainWindow, {
+            type: "error",
+            title: "Ошибка инициализации",
+            message: "Не удалось инициализировать приложение",
+            detail: `Ошибка: ${errorMsg}\n\nУбедитесь, что KEY_AGENT_URL правильно настроен и доступен.`,
+            buttons: ["Закрыть"]
+          })
+        } catch (err) {
+          console.error("[main] Error showing error dialog:", err)
+        } finally {
           app.quit()
-        })
+        }
       } else {
         // If window creation failed too, just quit
         app.quit()
