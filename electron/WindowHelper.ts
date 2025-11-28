@@ -640,4 +640,9 @@ export class WindowHelper {
     const clampedOpacity = Math.max(0.1, Math.min(1.0, opacity))
     this.mainWindow.setOpacity(clampedOpacity)
   }
+
+  public setContentProtection(enabled: boolean): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    this.mainWindow.setContentProtection(enabled)
+  }
 }

@@ -36,6 +36,14 @@ export function initializeIpcHandlers(appState: AppState): void {
     return { success: false, error: "Invalid opacity value" }
   })
 
+  ipcMain.handle("set-content-protection", async (event, enabled: boolean) => {
+    if (typeof enabled === "boolean") {
+      appState.setContentProtection(enabled)
+      return { success: true }
+    }
+    return { success: false, error: "Invalid value" }
+  })
+
   ipcMain.handle("delete-screenshot", async (event, path: string) => {
     return appState.deleteScreenshot(path)
   })

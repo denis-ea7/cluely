@@ -10,6 +10,7 @@ interface ElectronAPI {
     height: number
   }) => Promise<void>
   setWindowOpacity: (opacity: number) => Promise<{ success: boolean; error?: string }>
+  setContentProtection: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
   getScreenshots: () => Promise<Array<{ path: string; preview: string }>>
   deleteScreenshot: (
     path: string
@@ -90,6 +91,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("ensure-window-size", dimensions),
   setWindowOpacity: (opacity: number) =>
     ipcRenderer.invoke("set-window-opacity", opacity),
+  setContentProtection: (enabled: boolean) =>
+    ipcRenderer.invoke("set-content-protection", enabled),
   takeScreenshot: () => ipcRenderer.invoke("take-screenshot"),
   getScreenshots: () => ipcRenderer.invoke("get-screenshots"),
   deleteScreenshot: (path: string) =>
