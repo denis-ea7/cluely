@@ -1,7 +1,7 @@
 import React from "react"
 import { Button } from "./ui/button"
 import { Separator } from "./ui/separator"
-import { GripVertical, X, Home, Play, Pause, Square } from "lucide-react"
+import { GripVertical, X, Home, Play, Pause, Square, Eye, EyeOff } from "lucide-react"
 import { cn } from "../lib/utils"
 
 type Tab = "chat" | "transcript"
@@ -16,6 +16,8 @@ export interface ControlBarProps {
   onToggleRecording: () => void
   recording: boolean
   inputLevel: number
+  contentProtectionEnabled: boolean
+  onToggleContentProtection: () => void
   onClose?: () => void
 }
 
@@ -29,6 +31,8 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onToggleRecording,
   recording,
   inputLevel,
+  contentProtectionEnabled,
+  onToggleContentProtection,
   onClose
 }) => {
   return (
@@ -124,6 +128,22 @@ export const ControlBar: React.FC<ControlBarProps> = ({
           )}
         >
           Transcript
+        </Button>
+        
+        <Separator orientation="vertical" className="h-5 bg-white/20" />
+        
+        {/* Content Protection toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggleContentProtection}
+          className={cn(
+            "h-8 w-8 text-white hover:bg-white/10",
+            contentProtectionEnabled ? "text-green-400" : ""
+          )}
+          title={contentProtectionEnabled ? "Видна при шаринге" : "Скрыта при шаринге"}
+        >
+          {contentProtectionEnabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
         </Button>
         
         <Separator orientation="vertical" className="h-5 bg-white/20" />

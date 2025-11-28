@@ -26,6 +26,7 @@ declare global {
         height: number
       }) => Promise<void>
       setWindowOpacity: (opacity: number) => Promise<{ success: boolean; error?: string }>
+      setContentProtection: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
       getScreenshots: () => Promise<Array<{ path: string; preview: string }>>
 
       onUnauthorized: (callback: () => void) => () => void
@@ -123,6 +124,7 @@ const App: React.FC = () => {
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [liveInterimText, setLiveInterimText] = useState<string>("")
   const [useScreen, setUseScreen] = useState<boolean>(false)
+  const [contentProtectionEnabled, setContentProtectionEnabled] = useState<boolean>(false)
   const transcriptRef = useRef<string[]>([])
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([])
   const floatingRef = useRef<HTMLDivElement>(null)
@@ -746,6 +748,16 @@ const App: React.FC = () => {
     }
   }, [])
 
+  const handleToggleContentProtection = useCallback(async () => {
+    const newValue = !contentProtectionEnabled
+    try {
+      await window.electronAPI.setContentProtection?.(newValue)
+      setContentProtectionEnabled(newValue)
+    } catch (error) {
+      console.error("[App] Error toggling content protection:", error)
+    }
+  }, [contentProtectionEnabled])
+
   useEffect(() => {
     // Инициализация прозрачности при загрузке
     try {
@@ -838,6 +850,8 @@ const App: React.FC = () => {
               onToggleRecording={handleRecordToggle}
               recording={isVoiceRecording}
               inputLevel={voiceInputLevel}
+              contentProtectionEnabled={contentProtectionEnabled}
+              onToggleContentProtection={handleToggleContentProtection}
               onClose={async () => {
                 try {
                   await window.electronAPI.invoke?.("toggle-window")

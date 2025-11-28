@@ -134,6 +134,10 @@ export class AppState {
     this.windowHelper.setWindowOpacity(opacity)
   }
 
+  public setContentProtection(enabled: boolean): void {
+    this.windowHelper.setContentProtection(enabled)
+  }
+
   public clearQueues(): void {
     this.screenshotHelper.clearQueues()
 
