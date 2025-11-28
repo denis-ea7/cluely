@@ -15,9 +15,11 @@ KEY_AGENT_URL=http://109.61.108.37:8089
 KEY_AGENT_CLIENT_TOKEN=
 API_URL=http://109.61.108.37:4000
 SITE_URL=http://109.61.108.37:3005
+KEY_AGENT_TIMEOUT_MS=60000
 ```
 
-**Важно**: 
+**Важно**:
+- `KEY_AGENT_TIMEOUT_MS` - время ожидания ответа от key-agent в миллисекундах (по умолчанию 60000 = 60 секунд). Увеличьте, если у вас медленное подключение. 
 - Замените URL на адрес вашего key-agent сервера
 - Если key-agent требует токен, укажите его в `KEY_AGENT_CLIENT_TOKEN`
 

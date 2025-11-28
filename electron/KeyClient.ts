@@ -33,10 +33,29 @@ export class KeyClient {
     }
     const headers: Record<string, string> = {}
     if (this.clientToken) headers["X-Client-Token"] = this.clientToken
-    const { data } = await axios.get<KeysResponse>(`${this.url}/keys`, { headers, timeout: 15000 })
-    this.cache = data || {}
-    this.cacheAt = now
-    return this.cache
+    
+    // Configurable timeout (default 60 seconds for slow connections)
+    const timeoutMs = Number(process.env.KEY_AGENT_TIMEOUT_MS) || 60000
+    
+    try {
+      const { data } = await axios.get<KeysResponse>(`${this.url}/keys`, { 
+        headers, 
+        timeout: timeoutMs,
+        validateStatus: (status) => status < 500 // Don't throw on 4xx errors
+      })
+      this.cache = data || {}
+      this.cacheAt = now
+      return this.cache
+    } catch (error: any) {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        throw new Error(`Не удалось подключиться к key-agent по адресу ${this.url}. Проверьте, что сервер запущен и доступен.`)
+      } else if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
+        throw new Error(`Превышено время ожидания подключения к key-agent (${timeoutMs/1000} сек). Проверьте подключение к интернету и доступность сервера ${this.url}.`)
+      } else if (error.response) {
+        throw new Error(`Key-agent вернул ошибку: ${error.response.status} ${error.response.statusText}`)
+      }
+      throw error
+    }
   }
 }
 

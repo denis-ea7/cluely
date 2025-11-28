@@ -272,17 +272,37 @@ async function initializeApp() {
     // Load .env from app directory (works in both dev and production)
     const envPath = isDev 
       ? path.join(__dirname, "../.env")
-      : path.join(process.resourcesPath, "../.env")
-    dotenv.config({ path: envPath })
+      : path.join((process as any).resourcesPath || path.dirname(process.execPath), "../.env")
+    
+    console.log(`[main] Loading .env from: ${envPath}`)
+    const envResult = dotenv.config({ path: envPath })
+    if (envResult.error && !isDev) {
+      console.warn(`[main] Could not load .env from ${envPath}:`, envResult.error.message)
+    } else if (!envResult.error) {
+      console.log(`[main] Successfully loaded .env from ${envPath}`)
+    }
     
     // Also try .env in the same directory as the executable (for portable Windows builds)
     if (!isDev && process.platform === "win32") {
       const portableEnvPath = path.join(path.dirname(process.execPath), ".env")
+      console.log(`[main] Also checking portable .env at: ${portableEnvPath}`)
       try {
-        dotenv.config({ path: portableEnvPath, override: false })
+        const portableResult = dotenv.config({ path: portableEnvPath, override: false })
+        if (!portableResult.error) {
+          console.log(`[main] Successfully loaded portable .env from ${portableEnvPath}`)
+        }
       } catch (e) {
         // Ignore if .env doesn't exist in portable location
+        console.log(`[main] Portable .env not found at ${portableEnvPath} (this is OK)`)
       }
+    }
+    
+    // Log loaded environment variables (without sensitive values)
+    const keyAgentUrl = process.env.KEY_AGENT_URL
+    if (keyAgentUrl) {
+      console.log(`[main] KEY_AGENT_URL is set to: ${keyAgentUrl}`)
+    } else {
+      console.warn(`[main] WARNING: KEY_AGENT_URL is not set in environment variables`)
     }
     
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.PROXY_URL
@@ -324,11 +344,17 @@ async function initializeApp() {
       const mainWindow = appState.getMainWindow()
       if (mainWindow) {
         try {
+          const envFilePath = isDev 
+            ? path.join(__dirname, "../.env") 
+            : path.join(path.dirname(process.execPath), ".env")
+          
+          const keyAgentUrl = process.env.KEY_AGENT_URL || "не указан"
+          
           await dialog.showMessageBox(mainWindow, {
             type: "error",
             title: "Ошибка инициализации",
             message: "Не удалось инициализировать приложение",
-            detail: `Ошибка: ${errorMsg}\n\nУбедитесь, что KEY_AGENT_URL правильно настроен и доступен.`,
+            detail: `Ошибка подключения к key-agent:\n${errorMsg}\n\nПроверьте:\n\n1. Файл .env существует в папке с программой\n   Путь: ${envFilePath}\n\n2. В файле .env указан KEY_AGENT_URL\n   Текущее значение: ${keyAgentUrl}\n\n3. Key-agent сервер запущен и доступен\n   Проверьте в браузере: ${keyAgentUrl}/health\n\n4. Подключение к интернету работает\n\nЕсли проблема сохраняется, увеличьте таймаут в .env:\nKEY_AGENT_TIMEOUT_MS=120000`,
             buttons: ["Закрыть"]
           })
         } catch (err) {
