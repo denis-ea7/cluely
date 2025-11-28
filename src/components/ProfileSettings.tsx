@@ -160,10 +160,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                   </SelectContent>
                 </Select>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
                   onClick={onRefreshDevices}
-                  className="border-white/10 text-white hover:bg-white/10"
+                  className="text-white hover:text-white/80 "
                 >
                   ↻
                 </Button>
