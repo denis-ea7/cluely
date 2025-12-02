@@ -131,8 +131,14 @@ export class WindowHelper {
     this.screenWidth = workArea.width
     this.screenHeight = workArea.height
 
-    // Для режима «плавающего оверлея» как в Cluely всегда используем безрамочное прозрачное окно
-    const useFrame = false
+    // Для режима «плавающего оверлея» как в Cluely всегда используем безрамочное
+    // прозрачное окно. Однако на Windows 10 + RDP полностью прозрачное окно
+    // иногда отображается как сплошной белый прямоугольник. В dev‑режиме на
+    // Windows делаем окно непрозрачным, чтобы интерфейс был всегда виден.
+    const useFrame =
+      process.platform === "win32" && process.env.NODE_ENV === "development"
+        ? true
+        : false
     
     const savedState = this.stateManager.load()
     const defaultWidth = 300
@@ -172,10 +178,11 @@ export class WindowHelper {
       show: false, // Always start hidden, show after load
       alwaysOnTop: true,
       frame: useFrame,
-      transparent: !useFrame,
+      // В dev на Windows отключаем полную прозрачность, чтобы не было белого экрана.
+      transparent: useFrame ? false : !useFrame,
       fullscreenable: false,
       hasShadow: !useFrame,
-      backgroundColor: "#00000000",
+      backgroundColor: useFrame ? "#111827" : "#00000000",
       focusable: true,
       resizable: true,
       movable: true,

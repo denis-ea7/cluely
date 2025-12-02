@@ -129,6 +129,7 @@ const App: React.FC = () => {
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([])
   const floatingRef = useRef<HTMLDivElement>(null)
   const chatInFlightRef = useRef<boolean>(false)
+  const [meetingTemplate, setMeetingTemplate] = useState<string>("")
   
   const { data: token, refetch: refetchToken } = useQuery(
     ["auth_token"], 
@@ -265,6 +266,25 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [refetchToken, refetchPremium, queryClient])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("meetingTemplate")
+      if (saved) {
+        setMeetingTemplate(saved)
+      }
+    } catch (e) {
+      console.error("[App] Error loading meeting template from localStorage:", e)
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("meetingTemplate", meetingTemplate || "")
+    } catch (e) {
+      console.error("[App] Error saving meeting template to localStorage:", e)
+    }
+  }, [meetingTemplate])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -599,7 +619,14 @@ const App: React.FC = () => {
       contextPrompt += "\nТекущий вопрос (на который нужно ответить):"
     }
 
-    const prompt = `Ты помощник на собеседовании. Ответь по-русски, чётко и по делу на вопрос собеседника.${contextPrompt}\n"${mainQuestion}"\n\nУчти контекст предыдущих вопросов и ответов, особенно если текущий вопрос является уточнением или подвопросом к предыдущим. Дай развернутый и полезный ответ, который поможет собеседнику.`
+    let systemPart =
+      "Ты помощник на собеседовании. Ответь по-русски, чётко и по делу на вопрос собеседника."
+
+    if (meetingTemplate.trim()) {
+      systemPart += `\n\nДополнительный контекст встречи (задан пользователем):\n${meetingTemplate.trim()}`
+    }
+
+    const prompt = `${systemPart}${contextPrompt}\n"${mainQuestion}"\n\nУчти контекст предыдущих вопросов и ответов, особенно если текущий вопрос является уточнением или подвопросом к предыдущим. Дай развернутый и полезный ответ, который поможет собеседнику.`
 
     console.log("[Assist] final prompt:", prompt)
 
@@ -633,7 +660,7 @@ const App: React.FC = () => {
     } finally {
       chatInFlightRef.current = false
     }
-  }, [appendTranscript, askStream, isVoiceRecording, closeVoiceTranscriptionStream, useScreen])
+  }, [appendTranscript, askStream, isVoiceRecording, closeVoiceTranscriptionStream, useScreen, meetingTemplate])
 
   const testScreenshot = useCallback(async () => {
     try {
@@ -799,11 +826,19 @@ const App: React.FC = () => {
     setSessionActive(false)
     try {
       const ctx = transcript.join("\n")
-      const prompt =
+      let prompt =
         "Сделай краткое, структурированное резюме по этой стенограмме встречи. " +
         "Выдели цели, принятые решения, задачи, сроки, риски. " +
         "Стенограмма:\n" +
         ctx
+
+      if (meetingTemplate.trim()) {
+        prompt =
+          "Учитывай, что встреча проходит в следующем формате / с такими ожиданиями (шаблон от пользователя):\n" +
+          meetingTemplate.trim() +
+          "\n\n" +
+          prompt
+      }
       const result = await geminiAsk(prompt)
       setSummaryText(result)
       setShowSummary(true)

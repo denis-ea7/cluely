@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
 import { Button } from "./ui/button"
-import { Separator } from "./ui/separator"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
 import { useQueryClient } from "react-query"
@@ -13,6 +12,8 @@ interface ProfileSettingsProps {
   selectedDeviceId: string
   onSelectDevice: (id: string) => void
   onRefreshDevices: () => void
+  meetingTemplate: string
+  onMeetingTemplateChange: (value: string) => void
 }
 
 export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
@@ -21,7 +22,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   voiceDevices,
   selectedDeviceId,
   onSelectDevice,
-  onRefreshDevices
+  onRefreshDevices,
+  meetingTemplate,
+  onMeetingTemplateChange
 }) => {
   const [token, setToken] = useState<string | null>(null)
   const [premium, setPremium] = useState<{ isPremium: boolean; premiumUntil: string | null } | null>(null)
@@ -57,12 +60,18 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
     }
   }
 
-  const microphoneOptions = voiceDevices.length
-    ? voiceDevices.map((device, index) => ({
-        deviceId: device.deviceId || `device-${index}`,
-        label: device.label || `Микрофон ${index + 1}`
-      }))
-    : [{ deviceId: "", label: "Стандартный микрофон" }]
+  // Нормализуем список микрофонов. Важно: Radix <Select.Item /> не принимает
+  // пустую строку в качестве value, поэтому при отсутствии устройств мы
+  // просто не рендерим элементы списка и показываем плейсхолдер.
+  const microphoneOptions =
+    voiceDevices.length > 0
+      ? voiceDevices.map((device, index) => ({
+          deviceId: device.deviceId || `device-${index}`,
+          label: device.label || `Микрофон ${index + 1}`
+        }))
+      : []
+
+  const hasMicrophones = microphoneOptions.length > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -143,21 +152,31 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
             </CardHeader>
             <CardContent>
               <div className="flex gap-2">
-                <Select value={selectedDeviceId} onValueChange={onSelectDevice}>
+                <Select
+                  value={hasMicrophones ? selectedDeviceId : ""}
+                  onValueChange={onSelectDevice}
+                  disabled={!hasMicrophones}
+                >
                   <SelectTrigger className="bg-black/20 border-white/10 text-white flex-1">
-                    <SelectValue />
+                    <SelectValue
+                      placeholder={
+                        hasMicrophones ? "Выберите микрофон" : "Нет доступных устройств"
+                      }
+                    />
                   </SelectTrigger>
-                  <SelectContent className="bg-black/90 border-white/10">
-                    {microphoneOptions.map((option) => (
-                      <SelectItem
-                        key={option.deviceId || option.label}
-                        value={option.deviceId}
-                        className="text-white"
-                      >
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  {hasMicrophones && (
+                    <SelectContent className="bg-black/90 border-white/10">
+                      {microphoneOptions.map((option) => (
+                        <SelectItem
+                          key={option.deviceId || option.label}
+                          value={option.deviceId}
+                          className="text-white"
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  )}
                 </Select>
                 <Button
                   variant="ghost"
@@ -170,6 +189,27 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               </div>
               <CardDescription className="text-white/50 text-xs mt-2">
                 Выберите устройство, которое будет использоваться для записи голоса.
+              </CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white/5 border-white/10">
+            <CardHeader>
+              <CardTitle className="text-white text-sm">Шаблон встречи</CardTitle>
+              <CardDescription className="text-white/70 text-xs">
+                Опишите формат и цель ваших встреч, стиль ответов и важные нюансы. ИИ будет учитывать
+                этот текст как дополнительный контекст при ответах и составлении резюме.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <textarea
+                value={meetingTemplate}
+                onChange={(e) => onMeetingTemplateChange(e.target.value)}
+                placeholder="Например: Техническое собеседование на позицию Senior React-разработчика, важно подробно объяснять решения, уделять внимание архитектуре и качеству кода..."
+                className="w-full min-h-[120px] resize-y rounded-md bg-black/40 border border-white/15 px-3 py-2 text-sm text-white placeholder:text-white/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+              />
+              <CardDescription className="text-white/50 text-xs mt-2">
+                Шаблон сохраняется локально и будет автоматически применяться ко всем новым сессиям.
               </CardDescription>
             </CardContent>
           </Card>

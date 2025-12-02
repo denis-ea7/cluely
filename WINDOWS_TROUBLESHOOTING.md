@@ -147,3 +147,4 @@ Get-Process | Where-Object {$_.ProcessName -like "*electron*"} | Select-Object P
 3. Логи из `%APPDATA%\Meeting Notes Coder\logs\`
 4. Скриншот диспетчера задач с процессами приложения
 
+

@@ -10,6 +10,18 @@ import { ProcessingHelper } from "./ProcessingHelper"
 import { TokenManager } from "./TokenManager"
 import { PremiumManager } from "./PremiumManager"
 
+// Polyfill ReadableStream for undici on older Electron/Node runtimes
+if (typeof (globalThis as any).ReadableStream === "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { ReadableStream } = require("web-streams-polyfill/ponyfill")
+  ;(globalThis as any).ReadableStream = ReadableStream
+}
+
+// Tweak Chromium flags to make media (microphone) work more reliably on Windows/RDP
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required")
+// Auto‑approve getUserMedia without showing a blocking permission dialog
+app.commandLine.appendSwitch("use-fake-ui-for-media-stream")
+
 const isDev = process.env.NODE_ENV === "development"
 
 export class AppState {

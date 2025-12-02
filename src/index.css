@@ -55,15 +55,22 @@
   }
   html,
   body {
-    @apply bg-transparent text-foreground;
+    /* В Electron‑окне делаем фон тёмным, чтобы избежать белого прямоугольника
+       на Windows/RDP. Само содержимое приложения остаётся полупрозрачным. */
     margin: 0;
     padding: 0;
     overflow: hidden;
+    background: #0f172a;
+    color: rgb(248 250 252);
   }
   
   body.session-active {
-    @apply bg-transparent;
+    background: #0f172a;
   }
+}
+
+#root {
+  background: #0f172a;
 }
 
 /* Draggable area for window */
