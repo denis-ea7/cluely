@@ -66,20 +66,17 @@ export const OpacitySlider: React.FC<OpacitySliderProps> = ({ onOpacityChange })
     <div className="pointer-events-auto">
       <div
         ref={sliderRef}
-        className="relative w-full h-2 bg-white/10 rounded-full cursor-pointer border border-white/20"
+        className="relative w-full h-2 bg-white/10 rounded-full border border-white/20"
         onMouseDown={handleMouseDown}
-        style={{
-          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)"
-        }}
       >
         <div
-          className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-full transition-all duration-100"
+          className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-full"
           style={{
             width: `${percentage}%`,
           }}
         />
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-slate-800 shadow-lg transition-all duration-100 pointer-events-none"
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-slate-800 shadow-lg pointer-events-none"
           style={{
             left: `calc(${percentage}% - 6px)`,
           }}
