@@ -139,7 +139,7 @@ const App: React.FC = () => {
   const floatingRef = useRef<HTMLDivElement>(null)
   const chatInFlightRef = useRef<boolean>(false)
   const [meetingTemplate, setMeetingTemplate] = useState<string>("")
-  const [useDeepgram, setUseDeepgram] = useState<boolean>(false)
+  const [useDeepgram, setUseDeepgram] = useState<boolean>(true)
   
   const { data: token, refetch: refetchToken } = useQuery(
     ["auth_token"], 
@@ -660,7 +660,7 @@ const App: React.FC = () => {
     }
 
     let systemPart =
-      "Ты помощник на собеседовании. Ответь по-русски, чётко и по делу на вопрос собеседника."
+      "Представь, что ты — это я, кандидат на собеседовании или партнёр по бизнесу. Сформулируй ответ так, как будто я сам говорю собеседнику (на \"вы\"), вежливо и профессионально. Ответь по-русски, чётко и по делу на последний вопрос собеседника."
 
     if (meetingTemplate.trim()) {
       systemPart += `\n\nДополнительный контекст встречи (задан пользователем):\n${meetingTemplate.trim()}`
