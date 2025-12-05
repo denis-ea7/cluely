@@ -575,47 +575,34 @@ const App: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 300))
     }
 
+    const transcriptLines = transcriptRef.current || []
+    const userQuestions = transcriptLines
+      .map((line) => line.replace(/^Пользователь:\s*/i, "").trim())
+      .filter(Boolean)
+
     let mainQuestion = ""
-    if (useDeepgram) {
-      // В режиме Deepgram отвечаем на последний вопрос СОБЕСЕДНИКА (role === "assistant")
-      const onlyAssistant = conversationRef.current.filter((m) => m.role === "assistant")
-      if (!onlyAssistant.length) {
-        console.log("[Assist][DG] no assistant messages found, skipping")
+
+    const rawText = (accumulatedVoiceTextRef.current || "").trim()
+    const fromVoice = extractLastQuestion(rawText)
+
+    if (fromVoice && fromVoice.length >= 3) {
+      mainQuestion = fromVoice
+      accumulatedVoiceTextRef.current = ""
+      lastInterimTextRef.current = ""
+      setLiveInterimText("")
+    } else if (userQuestions.length > 0) {
+      const lastIdx = userQuestions.length - 1
+      mainQuestion = userQuestions[lastIdx]
+    }
+
+    if (!mainQuestion) {
+      const onlyUser = conversationRef.current.filter((m) => m.role === "user")
+      const lastUser = onlyUser[onlyUser.length - 1]?.text?.trim() || ""
+      if (!lastUser) {
+        console.log("[Assist] no question found, skipping")
         return
       }
-      const lastFew = onlyAssistant.slice(-3).map((m) => m.text.trim()).filter(Boolean)
-      const combined = lastFew.join(" ")
-      const fromAssistant = extractLastQuestion(combined || onlyAssistant[onlyAssistant.length - 1].text)
-      mainQuestion = (fromAssistant || onlyAssistant[onlyAssistant.length - 1].text || "").trim()
-    } else {
-      // Старый режим: отвечаем на последний вопрос ПОЛЬЗОВАТЕЛЯ
-      const transcriptLines = transcriptRef.current || []
-      const userQuestions = transcriptLines
-        .map((line) => line.replace(/^Пользователь:\s*/i, "").trim())
-        .filter(Boolean)
-
-      const rawText = (accumulatedVoiceTextRef.current || "").trim()
-      const fromVoice = extractLastQuestion(rawText)
-
-      if (fromVoice && fromVoice.length >= 3) {
-        mainQuestion = fromVoice
-        accumulatedVoiceTextRef.current = ""
-        lastInterimTextRef.current = ""
-        setLiveInterimText("")
-      } else if (userQuestions.length > 0) {
-        const lastIdx = userQuestions.length - 1
-        mainQuestion = userQuestions[lastIdx]
-      }
-
-      if (!mainQuestion) {
-        const onlyUser = conversationRef.current.filter((m) => m.role === "user")
-        const lastUser = onlyUser[onlyUser.length - 1]?.text?.trim() || ""
-        if (!lastUser) {
-          console.log("[Assist] no question found, skipping")
-          return
-        }
-        mainQuestion = lastUser
-      }
+      mainQuestion = lastUser
     }
 
     const normalizedQuestion = normalizeQuestion(mainQuestion)
@@ -683,12 +670,8 @@ const App: React.FC = () => {
 
     console.log("[Assist] final prompt:", prompt)
 
-    // В старом режиме дублируем вопрос пользователя в стенограмму.
-    // В режиме Deepgram вопрос собеседника уже есть в транскрипте — не добавляем его как "Пользователь".
-    if (!useDeepgram) {
-      appendTranscript({ speaker: "user", text: mainQuestion })
-      conversationRef.current = [...conversationRef.current, { role: "user", text: mainQuestion }]
-    }
+    appendTranscript({ speaker: "user", text: mainQuestion })
+    conversationRef.current = [...conversationRef.current, { role: "user", text: mainQuestion }]
     
     let screenshotPath: string | undefined = undefined
     if (useScreen) {
