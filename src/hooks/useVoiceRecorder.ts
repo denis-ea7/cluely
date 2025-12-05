@@ -46,6 +46,7 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
   const vadIntervalRef = useRef<number | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const transcriptionCleanupRef = useRef<(() => void) | null>(null)
+  const transcriptionErrorCleanupRef = useRef<(() => void) | null>(null)
   const lastChunkSentAtRef = useRef<number>(0)
   const lastInterimAtRef = useRef<number>(0)
   const pendingInterimRef = useRef<string>("")
@@ -108,6 +109,10 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
     if (transcriptionCleanupRef.current) {
       transcriptionCleanupRef.current()
       transcriptionCleanupRef.current = null
+    }
+    if (transcriptionErrorCleanupRef.current) {
+      transcriptionErrorCleanupRef.current()
+      transcriptionErrorCleanupRef.current = null
     }
     if (interimDebounceTimerRef.current) {
       window.clearTimeout(interimDebounceTimerRef.current)
@@ -415,10 +420,17 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
         }
         
         if ((window as any)?.electronAPI?.onTranscriptionError) {
-          (window as any).electronAPI.onTranscriptionError((data: { error: string }) => {
-            console.error("[VoiceRecorder] transcription error:", data.error)
-            setError(data.error)
-          })
+          // Перед новым подписчиком снимаем старый, чтобы не накапливать листенеры
+          if (transcriptionErrorCleanupRef.current) {
+            transcriptionErrorCleanupRef.current()
+          }
+          const cleanupErr = (window as any).electronAPI.onTranscriptionError(
+            (data: { error: string }) => {
+              console.error("[VoiceRecorder] transcription error:", data.error)
+              setError(data.error)
+            }
+          )
+          transcriptionErrorCleanupRef.current = cleanupErr
         }
       }
       
@@ -470,6 +482,10 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       transcriptionCleanupRef.current()
       transcriptionCleanupRef.current = null
     }
+    if (transcriptionErrorCleanupRef.current) {
+      transcriptionErrorCleanupRef.current()
+      transcriptionErrorCleanupRef.current = null
+    }
     if (interimDebounceTimerRef.current) {
       window.clearTimeout(interimDebounceTimerRef.current)
       interimDebounceTimerRef.current = null
@@ -518,9 +534,15 @@ export const useVoiceRecorder = ({ onResult, getChatHistory }: UseVoiceRecorderO
       }
       
       if ((window as any)?.electronAPI?.onTranscriptionError) {
-        (window as any).electronAPI.onTranscriptionError((data: { error: string }) => {
-          console.error("[VoiceRecorder] transcription error:", data.error)
-        })
+        if (transcriptionErrorCleanupRef.current) {
+          transcriptionErrorCleanupRef.current()
+        }
+        const cleanupErr = (window as any).electronAPI.onTranscriptionError(
+          (data: { error: string }) => {
+            console.error("[VoiceRecorder] transcription error:", data.error)
+          }
+        )
+        transcriptionErrorCleanupRef.current = cleanupErr
       }
     }
   }, [onResult])
