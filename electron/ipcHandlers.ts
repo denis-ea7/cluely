@@ -11,11 +11,13 @@ const nodeRecord = require("node-record-lpcm16") as {
   record: (options: any) => NodeRecorder
 }
 
+type TranscriptionStreamEntry = {
+  sendChunk: (pcmChunk: Buffer) => void
+  close: () => Promise<void>
+  stopSystem?: () => void
+}
 
-const activeTranscriptionStreams = new Map<
-  number,
-  { sendChunk: (pcmChunk: Buffer) => void; close: () => Promise<void> }
->()
+const activeTranscriptionStreams = new Map<number, TranscriptionStreamEntry>()
 
 type DeepgramSession = {
   stop: () => void
@@ -347,7 +349,47 @@ export function initializeIpcHandlers(appState: AppState): void {
         }
       )
 
-      activeTranscriptionStreams.set(webContentsId, stream)
+      // Дополнительно: захват системного звука через BlackHole и отправка в тот же стрим
+      let systemRecorder: NodeRecorder | null = null
+      const startSystemRecorder = () => {
+        try {
+          systemRecorder = nodeRecord.record({
+            sampleRate: 16000,
+            channels: 1,
+            audioType: "wav",
+            device: "BlackHole 2ch"
+          })
+          const sysStream = systemRecorder.stream()
+          sysStream.on("data", (chunk: Buffer) => {
+            setImmediate(() => {
+              try {
+                stream.sendChunk(chunk)
+              } catch (err) {
+                console.error("[IPC] Error sending system audio chunk:", err)
+              }
+            })
+          })
+          sysStream.on("error", (err: any) => {
+            console.error("[IPC] System audio stream error:", err)
+          })
+        } catch (err) {
+          console.error("[IPC] Failed to start system audio recorder (BlackHole):", err)
+        }
+      }
+
+      startSystemRecorder()
+
+      const stopSystem = () => {
+        try {
+          systemRecorder?.stop()
+        } catch {}
+        systemRecorder = null
+      }
+
+      activeTranscriptionStreams.set(webContentsId, {
+        ...stream,
+        stopSystem
+      })
       return { success: true }
     } catch (error: any) {
       console.error("Error starting transcription stream:", error)
@@ -384,6 +426,9 @@ export function initializeIpcHandlers(appState: AppState): void {
       const webContentsId = event.sender.id
       const stream = activeTranscriptionStreams.get(webContentsId)
       if (stream) {
+        try {
+          stream.stopSystem?.()
+        } catch {}
         await stream.close()
         activeTranscriptionStreams.delete(webContentsId)
       }
