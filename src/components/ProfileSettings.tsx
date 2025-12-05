@@ -14,6 +14,8 @@ interface ProfileSettingsProps {
   onRefreshDevices: () => void
   meetingTemplate: string
   onMeetingTemplateChange: (value: string) => void
+  useDeepgram: boolean
+  onUseDeepgramChange: (value: boolean) => void
 }
 
 export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
@@ -24,7 +26,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   onSelectDevice,
   onRefreshDevices,
   meetingTemplate,
-  onMeetingTemplateChange
+  onMeetingTemplateChange,
+  useDeepgram,
+  onUseDeepgramChange
 }) => {
   const [token, setToken] = useState<string | null>(null)
   const [premium, setPremium] = useState<{ isPremium: boolean; premiumUntil: string | null } | null>(null)
@@ -60,9 +64,6 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
     }
   }
 
-  // Нормализуем список микрофонов. Важно: Radix <Select.Item /> не принимает
-  // пустую строку в качестве value, поэтому при отсутствии устройств мы
-  // просто не рендерим элементы списка и показываем плейсхолдер.
   const microphoneOptions =
     voiceDevices.length > 0
       ? voiceDevices.map((device, index) => ({
@@ -190,6 +191,17 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
               <CardDescription className="text-white/50 text-xs mt-2">
                 Выберите устройство, которое будет использоваться для записи голоса.
               </CardDescription>
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={useDeepgram}
+                  onChange={(e) => onUseDeepgramChange(e.target.checked)}
+                  className="h-4 w-4 rounded-sm border-white/40 bg-black/40"
+                />
+                <span className="text-white/80 text-xs">
+                  Использовать Deepgram (микрофон + системный звук)
+                </span>
+              </div>
             </CardContent>
           </Card>
 

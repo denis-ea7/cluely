@@ -18,7 +18,9 @@
     "dist": "npm run app:build",
     "dist:mac": "npm run build:secure && electron-builder --mac",
     "prebuild:win": "npm install --os=win32 --cpu=x64 --cpu=ia32 sharp",
-    "dist:win": "npm run prebuild:win && npm run build:secure && electron-builder --win"
+    "dist:win": "npm run prebuild:win && npm run build:secure && electron-builder --win",
+    "record:system-audio:mac": "node ./record-system-audio-macos.js",
+    "deepgram:live": "node ./deepgram-live.js"
   },
   "build": {
     "appId": "com.electron.meeting-notes",
@@ -145,7 +147,7 @@
     "bytenode": "^1.5.7",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "electron": "^33.2.0",
+    "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "electron-is-dev": "^3.0.1",
     "javascript-obfuscator": "^4.1.1",
@@ -161,6 +163,7 @@
     "wait-on": "^8.0.1"
   },
   "dependencies": {
+    "@deepgram/sdk": "^4.11.2",
     "@google/genai": "^0.12.0",
     "@google/generative-ai": "^0.2.1",
     "@radix-ui/react-dialog": "^1.1.2",
@@ -173,6 +176,7 @@
     "clsx": "^2.1.1",
     "diff": "^7.0.0",
     "dotenv": "^17.2.3",
+    "electron-audio-loopback": "^1.0.6",
     "form-data": "^4.0.1",
     "https-proxy-agent": "^7.0.6",
     "lucide-react": "^0.460.0",

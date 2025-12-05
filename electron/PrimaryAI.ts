@@ -267,6 +267,7 @@ export class PrimaryAI {
   
       for (const chunk of pendingChunks) {
         ws.send(chunk)
+        console.log(chunk);
       }
       pendingChunks = []
     })

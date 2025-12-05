@@ -44,6 +44,15 @@ interface ElectronAPI {
   stopTranscriptionStream: () => Promise<{ success: boolean }>
   onTranscriptionInterim: (callback: (data: { text: string }) => void) => () => void
   onTranscriptionError: (callback: (data: { error: string }) => void) => () => void
+  // Deepgram: новый стрим (микрофон + системный звук)
+  startDeepgramStream: (options?: {
+    micDevice?: string
+    systemDevice?: string
+    language?: string
+    model?: string
+  }) => Promise<{ success: boolean }>
+  stopDeepgramStream: () => Promise<{ success: boolean }>
+  onDeepgramTranscript: (callback: (data: { source: "mic" | "system"; text: string }) => void) => () => void
   analyzeImageFile: (path: string) => Promise<void>
   quitApp: () => Promise<void>
   
@@ -216,6 +225,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const subscription = (_: any, data: { error: string }) => callback(data)
     ipcRenderer.on("transcription-error", subscription)
     return () => ipcRenderer.removeListener("transcription-error", subscription)
+  },
+  startDeepgramStream: (options?: {
+    micDevice?: string
+    systemDevice?: string
+    language?: string
+    model?: string
+  }) => ipcRenderer.invoke("deepgram-start", options),
+  stopDeepgramStream: () => ipcRenderer.invoke("deepgram-stop"),
+  onDeepgramTranscript: (
+    callback: (data: { source: "mic" | "system"; text: string }) => void
+  ) => {
+    const subscription = (_: any, data: { source: "mic" | "system"; text: string }) =>
+      callback(data)
+    ipcRenderer.on("deepgram-transcript", subscription)
+    return () => {
+      ipcRenderer.removeListener("deepgram-transcript", subscription)
+    }
   },
   
   startChatStream: (message: string, imagePath?: string) => ipcRenderer.invoke("chat-stream-start", message, imagePath),

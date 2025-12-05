@@ -2,9 +2,26 @@
 import { ipcMain, app, shell, BrowserWindow } from "electron"
 import { AppState } from "./main"
 import { TokenManager } from "./TokenManager"
+import WebSocket from "ws"
+
+// node-record-lpcm16 — CJS, подключаем через require
+type NodeRecorder = { stream(): NodeJS.ReadableStream; stop(): void }
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const nodeRecord = require("node-record-lpcm16") as {
+  record: (options: any) => NodeRecorder
+}
 
 
-const activeTranscriptionStreams = new Map<number, { sendChunk: (pcmChunk: Buffer) => void; close: () => Promise<void> }>()
+const activeTranscriptionStreams = new Map<
+  number,
+  { sendChunk: (pcmChunk: Buffer) => void; close: () => Promise<void> }
+>()
+
+type DeepgramSession = {
+  stop: () => void
+}
+
+const activeDeepgramSessions = new Map<number, DeepgramSession>()
 
 export function initializeIpcHandlers(appState: AppState): void {
   const tokenManager = new TokenManager()
@@ -272,7 +289,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  
+  // ===== СТАРЫЙ стрим через server2.meetingaitools.com (по умолчанию) =====
   ipcMain.handle("start-transcription-stream", async (event) => {
     try {
       const webContentsId = event.sender.id
@@ -377,13 +394,195 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  
+  // ===== Новый Deepgram-стрим (микрофон + системный звук) =====
+  ipcMain.handle(
+    "deepgram-start",
+    async (event, options?: { micDevice?: string; systemDevice?: string; language?: string; model?: string }) => {
+      const webContentsId = event.sender.id
+
+      // Если уже есть сессия — останавливаем
+      const existing = activeDeepgramSessions.get(webContentsId)
+      if (existing) {
+        try {
+          existing.stop()
+        } catch {}
+        activeDeepgramSessions.delete(webContentsId)
+      }
+
+      const language = options?.language || "ru"
+      const model = options?.model || "nova-2"
+      const micDevice = options?.micDevice
+      const systemDevice = options?.systemDevice || "BlackHole 2ch"
+
+      const DEEPGRAM_WS = "wss://api.deepgram.com/v1/listen"
+      const apiKey = "179f5732c4176f66663bf7bcd3073e21f55cae9e"
+
+      if (!apiKey) {
+        throw new Error("Deepgram API key is not configured")
+      }
+
+      const baseRecordOptions = {
+        sampleRate: 16000,
+        channels: 1,
+        audioType: "wav"
+      }
+
+      const params = new URLSearchParams({
+        encoding: "linear16",
+        sample_rate: String(baseRecordOptions.sampleRate),
+        channels: String(baseRecordOptions.channels),
+        model,
+        language,
+        punctuate: "true",
+        interim_results: "false"
+      })
+
+      const createDeepgramConnection = (
+        label: "mic" | "system",
+        onTranscript: (text: string) => void
+      ): WebSocket => {
+        const wsUrl = `${DEEPGRAM_WS}?${params.toString()}`
+        const socket = new WebSocket(wsUrl, {
+          headers: { Authorization: `Token ${apiKey}` }
+        })
+
+        socket.on("open", () => {
+          console.log(`[Deepgram:${label}] WebSocket opened`)
+        })
+
+        socket.on("message", (data) => {
+          try {
+            const msg = JSON.parse(data.toString())
+            if (!msg.is_final) return
+            if (!(msg.channel && msg.channel.alternatives && msg.channel.alternatives[0])) return
+            const alt = msg.channel.alternatives[0]
+            const text = (alt.transcript || "").trim()
+            if (!text) return
+            onTranscript(text)
+          } catch (e: any) {
+            console.error(`[Deepgram:${label}] parse error:`, e?.message || e)
+          }
+        })
+
+        socket.on("close", () => {
+          console.log(`[Deepgram:${label}] WebSocket closed`)
+        })
+
+        socket.on("error", (err: any) => {
+          console.error(`[Deepgram:${label}] WebSocket error:`, err?.message || err)
+        })
+
+        return socket
+      }
+
+      const dgMic = createDeepgramConnection("mic", (text) => {
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("deepgram-transcript", { source: "mic", text })
+          }
+        } catch {}
+      })
+
+      const dgSystem = createDeepgramConnection("system", (text) => {
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("deepgram-transcript", { source: "system", text })
+          }
+        } catch {}
+      })
+
+      let micRecorder: NodeRecorder | null = null
+      let systemRecorder: NodeRecorder | null = null
+
+      const startMicRecorder = () => {
+        const recOptions = micDevice
+          ? { ...baseRecordOptions, device: micDevice }
+          : { ...baseRecordOptions }
+        micRecorder = nodeRecord.record(recOptions)
+        const stream = micRecorder.stream()
+        stream.on("data", (chunk: Buffer) => {
+          if (dgMic.readyState === WebSocket.OPEN) {
+            dgMic.send(chunk)
+          }
+        })
+        stream.on("error", (err: any) => {
+          console.error("[Deepgram] mic stream error:", err)
+        })
+      }
+
+      const startSystemRecorder = () => {
+        const recOptions = { ...baseRecordOptions, device: systemDevice }
+        systemRecorder = nodeRecord.record(recOptions)
+        const stream = systemRecorder.stream()
+        stream.on("data", (chunk: Buffer) => {
+          if (dgSystem.readyState === WebSocket.OPEN) {
+            dgSystem.send(chunk)
+          }
+        })
+        stream.on("error", (err: any) => {
+          console.error("[Deepgram] system stream error:", err)
+        })
+      }
+
+      let openedCount = 0
+      const tryStart = () => {
+        openedCount += 1
+        if (openedCount === 2) {
+          startMicRecorder()
+          startSystemRecorder()
+        }
+      }
+
+      dgMic.on("open", tryStart)
+      dgSystem.on("open", tryStart)
+
+      const stop = () => {
+        try {
+          micRecorder?.stop()
+        } catch {}
+        try {
+          systemRecorder?.stop()
+        } catch {}
+        try {
+          if (dgMic.readyState === WebSocket.OPEN) dgMic.close()
+        } catch {}
+        try {
+          if (dgSystem.readyState === WebSocket.OPEN) dgSystem.close()
+        } catch {}
+      }
+
+      activeDeepgramSessions.set(webContentsId, { stop })
+
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle("deepgram-stop", async (event) => {
+    const webContentsId = event.sender.id
+    const sess = activeDeepgramSessions.get(webContentsId)
+    if (sess) {
+      try {
+        sess.stop()
+      } catch {}
+      activeDeepgramSessions.delete(webContentsId)
+    }
+    return { success: true }
+  })
+
   app.on("web-contents-created", (_event, webContents) => {
     webContents.on("destroyed", async () => {
       const stream = activeTranscriptionStreams.get(webContents.id)
       if (stream) {
         await stream.close().catch(() => {})
         activeTranscriptionStreams.delete(webContents.id)
+      }
+
+      const deepgramSession = activeDeepgramSessions.get(webContents.id)
+      if (deepgramSession) {
+        try {
+          deepgramSession.stop()
+        } catch {}
+        activeDeepgramSessions.delete(webContents.id)
       }
     })
   })

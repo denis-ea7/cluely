@@ -84,6 +84,15 @@ declare global {
       startChatStream: (message: string, imagePath?: string) => Promise<{ ok: boolean }>
       onChatDelta: (callback: (data: { delta: string }) => void) => () => void
       onChatComplete: (callback: (data: { text: string }) => void) => () => void
+      // Deepgram: новый стрим (микрофон + системный звук)
+      startDeepgramStream?: (options?: {
+        micDevice?: string
+        systemDevice?: string
+        language?: string
+        model?: string
+      }) => Promise<{ success: boolean }>
+      stopDeepgramStream?: () => Promise<{ success: boolean }>
+      onDeepgramTranscript?: (callback: (data: { source: "mic" | "system"; text: string }) => void) => () => void
     }
   }
 }
@@ -130,6 +139,7 @@ const App: React.FC = () => {
   const floatingRef = useRef<HTMLDivElement>(null)
   const chatInFlightRef = useRef<boolean>(false)
   const [meetingTemplate, setMeetingTemplate] = useState<string>("")
+  const [useDeepgram, setUseDeepgram] = useState<boolean>(false)
   
   const { data: token, refetch: refetchToken } = useQuery(
     ["auth_token"], 
@@ -285,6 +295,25 @@ const App: React.FC = () => {
       console.error("[App] Error saving meeting template to localStorage:", e)
     }
   }, [meetingTemplate])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("useDeepgram")
+      if (saved != null) {
+        setUseDeepgram(saved === "1")
+      }
+    } catch (e) {
+      console.error("[App] Error loading useDeepgram from localStorage:", e)
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("useDeepgram", useDeepgram ? "1" : "0")
+    } catch (e) {
+      console.error("[App] Error saving useDeepgram to localStorage:", e)
+    }
+  }, [useDeepgram])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -452,6 +481,13 @@ const App: React.FC = () => {
       setTranscript(next)
     }
 
+    if (entry.speaker === "assistant") {
+      const prevTranscript = transcriptRef.current || []
+      const next = [...prevTranscript, `Собеседник: ${clean}`]
+      transcriptRef.current = next
+      setTranscript(next)
+    }
+
     conversationRef.current = [...conversationRef.current, { role: entry.speaker, text: clean }]
   }, [])
 
@@ -477,6 +513,10 @@ const App: React.FC = () => {
     async (result: { text: string; isResponse?: boolean; transcript?: string }) => {
       const incoming = result?.text?.trim()
       if (!incoming) return
+      // В режиме Deepgram текст из старого стрима игнорируем (используем только Deepgram)
+      if (useDeepgram) {
+        return
+      }
       if (result.isResponse) {
         if (result.transcript?.trim()) {
           appendTranscript({ speaker: "user", text: result.transcript.trim() })
@@ -503,7 +543,7 @@ const App: React.FC = () => {
       }
       setLiveInterimText(incoming)
     },
-    []
+    [useDeepgram, appendTranscript]
   )
 
   const {
@@ -717,12 +757,27 @@ const App: React.FC = () => {
       try {
         await toggleVoiceRecording()
         if (!wasRecording) setVoiceError(null)
+
+        // Синхронно включаем / выключаем Deepgram‑стрим, если он активирован
+        if (!wasRecording && useDeepgram) {
+          try {
+            await window.electronAPI.startDeepgramStream?.()
+          } catch (err) {
+            console.error("[App] Failed to start Deepgram stream:", err)
+          }
+        } else if (wasRecording && useDeepgram) {
+          try {
+            await window.electronAPI.stopDeepgramStream?.()
+          } catch (err) {
+            console.error("[App] Failed to stop Deepgram stream:", err)
+          }
+        }
       } catch (err: any) {
         const message = err?.message ? `Не удалось начать запись: ${err.message}` : "Не удалось начать запись."
         setVoiceError(message)
       }
     },
-    [isVoiceRecording, toggleVoiceRecording]
+    [isVoiceRecording, toggleVoiceRecording, useDeepgram]
   )
 
   const handleChatAnswered = useCallback(
@@ -739,6 +794,24 @@ const App: React.FC = () => {
     if (!voiceRecorderError) return
     setVoiceError(voiceRecorderError)
   }, [voiceRecorderError])
+
+  // Deepgram: получаем текст от микрофона и системного звука
+  useEffect(() => {
+    if (!window.electronAPI.onDeepgramTranscript) return
+    const cleanup = window.electronAPI.onDeepgramTranscript((data) => {
+      const text = data?.text?.trim()
+      if (!text) return
+      if (data.source === "mic") {
+        setLiveInterimText(text)
+        appendTranscript({ speaker: "user", text })
+      } else {
+        appendTranscript({ speaker: "assistant", text })
+      }
+    })
+    return () => {
+      cleanup?.()
+    }
+  }, [appendTranscript])
 
   useEffect(() => {
     if (!voiceError) return
@@ -812,6 +885,9 @@ const App: React.FC = () => {
     setShowProfile(false)
     setLastAssistantAnswer("")
     setVoiceError(null)
+    try {
+      window.electronAPI.stopDeepgramStream?.()
+    } catch {}
     chatInFlightRef.current = false
     setTimeout(() => {
       window.electronAPI.updateContentDimensions?.({
@@ -946,6 +1022,10 @@ const App: React.FC = () => {
           selectedDeviceId={selectedVoiceDevice}
           onSelectDevice={selectVoiceDevice}
           onRefreshDevices={refreshVoiceDevices}
+          meetingTemplate={meetingTemplate}
+          onMeetingTemplateChange={setMeetingTemplate}
+          useDeepgram={useDeepgram}
+          onUseDeepgramChange={setUseDeepgram}
         />
         </ToastProvider>
     </div>
