@@ -148,3 +148,4 @@ Get-Process | Where-Object {$_.ProcessName -like "*electron*"} | Select-Object P
 4. Скриншот диспетчера задач с процессами приложения
 
 
+
